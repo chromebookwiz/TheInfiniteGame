@@ -1,34 +1,37 @@
-@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&family=Space+Grotesk:wght@400;500;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=IBM+Plex+Mono:wght@400;500;700&display=swap");
 
 :root {
   color-scheme: dark;
-  --bg: #120f10;
-  --bg-soft: rgba(21, 18, 20, 0.82);
-  --panel: rgba(33, 26, 29, 0.82);
-  --panel-strong: rgba(43, 33, 38, 0.92);
-  --text: #f7f0e3;
-  --muted: #cfbfa6;
-  --line: rgba(255, 236, 205, 0.14);
-  --gold: #ffbf63;
-  --mint: #8ed3ba;
-  --rose: #ff857d;
-  --sky: #7dc9ff;
-  --shadow: 0 24px 70px rgba(0, 0, 0, 0.45);
+  --bg: #090909;
+  --bg-elevated: #101010;
+  --panel: #141414;
+  --panel-alt: #1b1b1b;
+  --panel-soft: #111111;
+  --text: #f5f5f1;
+  --muted: #a7a7a0;
+  --line: #343434;
+  --line-strong: #535353;
+  --accent: #f2f2ea;
+  --shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
 }
 
 * {
   box-sizing: border-box;
 }
 
+html {
+  background: var(--bg);
+}
+
 body {
   margin: 0;
   min-width: 320px;
-  font-family: "Space Grotesk", sans-serif;
   background:
-    radial-gradient(circle at top left, rgba(255, 191, 99, 0.18), transparent 28%),
-    radial-gradient(circle at bottom right, rgba(142, 211, 186, 0.18), transparent 24%),
-    linear-gradient(160deg, #100d0e 0%, #171214 48%, #0d1012 100%);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent 24%),
+    radial-gradient(circle at top center, rgba(255, 255, 255, 0.08), transparent 32%),
+    linear-gradient(180deg, #050505 0%, #0a0a0a 42%, #050505 100%);
   color: var(--text);
+  font-family: "Cinzel", serif;
 }
 
 button,
@@ -42,262 +45,284 @@ button {
   cursor: pointer;
 }
 
-.app-shell {
-  position: relative;
+#root {
   min-height: 100vh;
-  overflow: hidden;
+}
+
+.app-shell {
+  min-height: 100vh;
 }
 
 .app-frame {
-  position: relative;
-  z-index: 1;
-  width: min(1440px, calc(100vw - 32px));
+  width: min(1480px, calc(100vw - 28px));
   margin: 0 auto;
-  padding: 24px 0 40px;
-}
-
-.aurora {
-  position: fixed;
-  width: 40vw;
-  height: 40vw;
-  border-radius: 999px;
-  filter: blur(90px);
-  opacity: 0.28;
-  pointer-events: none;
-}
-
-.aurora-one {
-  top: -10vw;
-  left: -8vw;
-  background: linear-gradient(135deg, rgba(255, 191, 99, 0.95), rgba(255, 133, 125, 0.45));
-  animation: driftA 14s ease-in-out infinite alternate;
-}
-
-.aurora-two {
-  right: -12vw;
-  bottom: -14vw;
-  background: linear-gradient(135deg, rgba(125, 201, 255, 0.8), rgba(142, 211, 186, 0.38));
-  animation: driftB 16s ease-in-out infinite alternate;
+  padding: 18px 0 28px;
 }
 
 .hero-panel,
-.panel {
-  backdrop-filter: blur(24px);
-  background: var(--panel);
+.panel,
+.story-card,
+.status-pill,
+.text-input,
+.text-area,
+.provider-button,
+.primary-button,
+.ghost-button,
+.seed-chip,
+.npc-chip,
+.meta-chip,
+.quest-badge,
+.rarity-badge,
+.tool-event-chip {
   border: 1px solid var(--line);
   box-shadow: var(--shadow);
 }
 
+.hero-panel,
+.panel,
+.story-card {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 28%),
+    var(--panel);
+}
+
+.hero-panel,
+.panel {
+  border-radius: 6px;
+}
+
 .hero-panel {
   display: grid;
-  grid-template-columns: 1.4fr 1fr;
-  gap: 24px;
-  padding: 28px;
-  border-radius: 28px;
-  margin-bottom: 24px;
+  grid-template-columns: minmax(0, 1.45fr) minmax(320px, 0.9fr);
+  gap: 18px;
+  padding: 20px;
+  margin-bottom: 18px;
 }
 
 .hero-panel h1,
 .story-header-panel h2 {
   margin: 0;
-  font-size: clamp(2.5rem, 5vw, 4.5rem);
-  line-height: 0.94;
-  letter-spacing: -0.06em;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  line-height: 1;
+}
+
+.hero-panel h1 {
+  font-size: clamp(2.2rem, 4vw, 3.6rem);
 }
 
 .story-header-panel h2 {
-  font-size: clamp(1.8rem, 4vw, 2.8rem);
+  font-size: clamp(1.55rem, 2.5vw, 2.35rem);
 }
 
-.hero-copy,
-.subtle-copy,
-.panel p {
-  line-height: 1.6;
-}
-
-.hero-copy {
-  max-width: 62ch;
-  color: var(--muted);
+.eyebrow,
+.story-meta,
+.meta-chip,
+.quest-badge,
+.rarity-badge,
+.tool-event-chip,
+.status-pill,
+.seed-chip,
+.npc-chip,
+.arena-tab-button,
+.field-label {
+  font-family: "IBM Plex Mono", monospace;
 }
 
 .eyebrow {
   margin: 0 0 8px;
-  font-family: "IBM Plex Mono", monospace;
-  letter-spacing: 0.18em;
+  color: var(--muted);
+  letter-spacing: 0.2em;
   text-transform: uppercase;
-  color: var(--gold);
-  font-size: 0.8rem;
+  font-size: 0.76rem;
+}
+
+.hero-copy,
+.subtle-copy,
+.panel p,
+.story-card p,
+.plain-list {
+  line-height: 1.6;
+}
+
+.hero-copy,
+.subtle-copy,
+.panel p,
+.story-meta,
+.info-grid span,
+.ability-grid span,
+.stat-grid span,
+.plain-list,
+.npc-profile p,
+.meter-row span {
+  color: var(--muted);
 }
 
 .status-stack {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  align-items: stretch;
+  gap: 10px;
 }
 
 .status-pill,
 .meta-chip,
-.seed-chip,
 .quest-badge,
 .rarity-badge,
-.npc-chip,
-.tool-event-chip {
+.tool-event-chip,
+.seed-chip,
+.npc-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 11px;
   border-radius: 999px;
-  border: 1px solid var(--line);
-  font-family: "IBM Plex Mono", monospace;
+  background: rgba(255, 255, 255, 0.03);
 }
 
-.status-pill {
-  padding: 12px 14px;
-  background: rgba(255, 255, 255, 0.04);
-}
-
-.status-ready {
-  border-color: rgba(142, 211, 186, 0.45);
-  color: var(--mint);
+.status-ready,
+.provider-button-active,
+.seed-chip-active,
+.npc-chip-active,
+.arena-tab-button-active {
+  border-color: var(--accent);
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .status-loading,
 .status-busy {
-  border-color: rgba(255, 191, 99, 0.45);
-  color: var(--gold);
+  border-color: #8e8e8e;
 }
 
-.status-error {
-  border-color: rgba(255, 133, 125, 0.45);
-  color: #ffd7d4;
-}
-
-.setup-grid,
-.game-grid {
-  display: grid;
-  gap: 24px;
+.status-error,
+.quest-failed {
+  border-color: #7b7b7b;
+  background: rgba(255, 255, 255, 0.06);
 }
 
 .setup-grid {
-  grid-template-columns: 1.2fr 0.95fr;
-}
-
-.game-grid {
-  grid-template-columns: minmax(0, 1.6fr) minmax(320px, 0.95fr);
-  align-items: start;
-}
-
-.story-column,
-.sidebar-column {
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.95fr);
 }
 
 .panel {
-  border-radius: 24px;
-  padding: 22px;
+  padding: 18px;
 }
 
 .panel-header,
 .story-meta,
-.mini-card-header {
+.story-header-panel,
+.mini-card-header,
+.meter-row {
   display: flex;
   justify-content: space-between;
-  gap: 16px;
+  gap: 12px;
   align-items: center;
 }
 
-.spotlight-panel {
-  background:
-    linear-gradient(155deg, rgba(255, 191, 99, 0.16), transparent 32%),
-    linear-gradient(180deg, rgba(43, 33, 38, 0.92), rgba(25, 21, 24, 0.92));
+.story-header-panel {
+  align-items: flex-start;
 }
 
 .spotlight-copy {
   margin: 16px 0;
-  font-size: clamp(1.4rem, 2vw, 2rem);
-  line-height: 1.2;
+  font-size: clamp(1.25rem, 2vw, 1.7rem);
 }
 
 .field-label {
   display: inline-block;
-  margin: 16px 0 8px;
-  color: var(--muted);
+  margin: 14px 0 8px;
+  text-transform: uppercase;
+  font-size: 0.78rem;
+  letter-spacing: 0.14em;
+}
+
+.text-input,
+.text-area,
+.provider-button,
+.primary-button,
+.ghost-button,
+.arena-tab-button {
+  width: 100%;
+  border-radius: 4px;
+  background: var(--panel-soft);
+  color: var(--text);
 }
 
 .text-input,
 .text-area {
-  width: 100%;
-  border-radius: 18px;
-  border: 1px solid rgba(255, 236, 205, 0.14);
-  background: rgba(9, 10, 12, 0.42);
-  color: var(--text);
-  padding: 14px 16px;
+  padding: 12px 14px;
   outline: none;
-  transition: border-color 180ms ease, transform 180ms ease;
 }
 
 .text-input:focus,
 .text-area:focus {
-  border-color: rgba(255, 191, 99, 0.62);
-  transform: translateY(-1px);
+  border-color: var(--line-strong);
 }
 
 .text-area {
-  min-height: 130px;
+  min-height: 126px;
   resize: vertical;
 }
 
 .compact-area {
-  min-height: 96px;
+  min-height: 92px;
 }
 
 .primary-button,
 .ghost-button,
+.provider-button,
+.arena-tab-button,
 .seed-chip,
 .npc-chip {
-  transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
+  transition: background 140ms ease, border-color 140ms ease, transform 140ms ease;
 }
 
 .primary-button,
-.ghost-button {
-  border-radius: 18px;
-  padding: 14px 18px;
-  border: 1px solid transparent;
+.ghost-button,
+.provider-button,
+.arena-tab-button {
+  padding: 12px 14px;
 }
 
 .primary-button {
-  background: linear-gradient(135deg, var(--gold), #ff865f);
-  color: #1e140f;
+  background: linear-gradient(180deg, #f1f1e6, #bfbfb7);
+  color: #090909;
   font-weight: 700;
-  margin-top: 16px;
 }
 
-.ghost-button {
-  background: rgba(255, 255, 255, 0.04);
-  color: var(--text);
-  border-color: var(--line);
+.ghost-button,
+.provider-button,
+.arena-tab-button,
+.seed-chip,
+.npc-chip {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02));
 }
 
 .primary-button:hover,
 .ghost-button:hover,
+.provider-button:hover,
+.arena-tab-button:hover,
 .seed-chip:hover,
 .npc-chip:hover {
-  transform: translateY(-2px);
+  transform: translateY(-1px);
 }
 
 .primary-button:disabled,
-.ghost-button:disabled {
-  opacity: 0.5;
+.ghost-button:disabled,
+.provider-button:disabled {
+  opacity: 0.55;
   cursor: not-allowed;
   transform: none;
 }
 
+.provider-toggle,
+.provider-actions,
 .seed-list,
 .npc-roster,
 .tag-row,
 .tool-event-row,
-.art-strip,
-.provider-toggle,
-.provider-actions {
+.art-strip {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
@@ -305,111 +330,162 @@ button {
 
 .provider-button {
   flex: 1 1 180px;
-  border-radius: 16px;
-  border: 1px solid var(--line);
-  background: rgba(255, 255, 255, 0.04);
-  color: var(--text);
-  padding: 12px 14px;
-}
-
-.provider-button-active {
-  border-color: rgba(255, 191, 99, 0.6);
-  background: rgba(255, 191, 99, 0.12);
 }
 
 .seed-list {
-  margin-top: 20px;
+  margin-top: 16px;
 }
 
-.seed-chip,
-.npc-chip,
-.meta-chip,
-.quest-badge,
-.rarity-badge,
-.tool-event-chip {
-  padding: 8px 12px;
-  background: rgba(255, 255, 255, 0.04);
-  color: var(--text);
+.class-card,
+.runtime-panel,
+.enemy-card,
+.rules-card,
+.npc-chat-shell,
+.mini-card,
+.inventory-card,
+.stat-grid div,
+.info-grid div,
+.ability-grid div {
+  border: 1px solid var(--line);
+  background: var(--panel-alt);
+  border-radius: 4px;
 }
 
-.seed-chip-active,
-.npc-chip-active {
-  border-color: rgba(255, 191, 99, 0.6);
-  background: rgba(255, 191, 99, 0.12);
+.class-card,
+.runtime-panel,
+.rules-card,
+.mini-card,
+.npc-chat-shell {
+  padding: 14px;
 }
 
-.story-header-panel {
+.class-card,
+.runtime-panel {
+  margin-top: 14px;
+}
+
+.arena-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) 360px;
+  gap: 18px;
+  align-items: start;
+}
+
+.arena-main-column,
+.arena-side-column {
   display: flex;
-  justify-content: space-between;
-  gap: 20px;
-  align-items: flex-start;
+  flex-direction: column;
+  gap: 18px;
 }
 
-.story-feed {
+.arena-tab-bar {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+  padding: 10px;
+}
+
+.arena-tab-button {
+  min-height: 48px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.74rem;
+}
+
+.arena-view-panel {
+  min-height: 620px;
   display: flex;
   flex-direction: column;
   gap: 16px;
 }
 
+.arena-scroll-region {
+  max-height: 640px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.story-feed {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
 .story-card {
-  position: relative;
-  padding: 20px;
-  border-radius: 24px;
-  border: 1px solid var(--line);
-  background: var(--panel-strong);
-  animation: riseIn 280ms ease;
+  padding: 18px;
+  border-radius: 4px;
 }
 
 .story-system {
-  background: rgba(29, 29, 34, 0.78);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 22%), #121212;
 }
 
 .story-player {
-  background: linear-gradient(145deg, rgba(36, 52, 61, 0.88), rgba(24, 28, 34, 0.9));
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.035), transparent 20%), #171717;
 }
 
 .story-dm {
-  background: linear-gradient(145deg, rgba(58, 34, 31, 0.9), rgba(29, 21, 24, 0.92));
-}
-
-.story-meta {
-  font-family: "IBM Plex Mono", monospace;
-  font-size: 0.8rem;
-  color: var(--muted);
-  margin-bottom: 8px;
-}
-
-.story-card p {
-  margin: 0;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), transparent 20%), #1a1a1a;
 }
 
 .story-image,
 .hero-art,
 .art-thumb,
-.npc-avatar {
-  width: 100%;
+.npc-avatar,
+.enemy-avatar,
+.inventory-icon {
   display: block;
+  width: 100%;
   object-fit: cover;
+  border: 1px solid var(--line);
 }
 
 .story-image,
 .hero-art {
-  border-radius: 18px;
-  margin-top: 16px;
+  margin-top: 14px;
   aspect-ratio: 16 / 10;
-  border: 1px solid rgba(255, 236, 205, 0.16);
+  border-radius: 4px;
 }
 
-.hero-art {
-  aspect-ratio: 16 / 10;
+.arena-scene-frame {
+  padding: 8px;
+  border: 1px solid var(--line);
+  background: #0d0d0d;
 }
 
-.art-thumb {
-  width: calc(25% - 8px);
-  min-width: 72px;
-  aspect-ratio: 1 / 1;
-  border-radius: 14px;
-  border: 1px solid rgba(255, 236, 205, 0.16);
+.arena-scene-image {
+  aspect-ratio: 16 / 9;
+  margin-top: 0;
+}
+
+.arena-surroundings-grid,
+.arena-actors-grid,
+.arena-character-grid,
+.arena-quests-grid {
+  display: grid;
+  gap: 14px;
+}
+
+.arena-surroundings-grid,
+.arena-character-grid,
+.arena-quests-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.arena-actors-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+}
+
+.arena-actor-column {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.arena-panel-card,
+.arena-sub-card {
+  box-shadow: none;
 }
 
 .art-placeholder {
@@ -417,98 +493,45 @@ button {
   display: grid;
   place-items: center;
   text-align: center;
-  padding: 20px;
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.03);
+  padding: 18px;
+  border: 1px dashed var(--line);
+  border-radius: 4px;
   color: var(--muted);
-}
-
-.stat-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.stat-grid div,
-.mini-card,
-.inventory-card,
-.npc-chat-shell {
-  border: 1px solid rgba(255, 236, 205, 0.12);
-  background: rgba(0, 0, 0, 0.18);
-  border-radius: 18px;
-}
-
-.stat-grid div {
-  padding: 14px;
-}
-
-.stat-grid span {
-  display: block;
-  font-size: 0.86rem;
-  color: var(--muted);
-}
-
-.stat-grid strong {
-  font-size: 1.5rem;
+  background: rgba(255, 255, 255, 0.02);
 }
 
 .stack-list {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-}
-
-.mini-card,
-.inventory-card,
-.npc-chat-shell {
-  padding: 16px;
-}
-
-.plain-list {
-  padding-left: 18px;
-  margin: 12px 0 0;
-  color: var(--muted);
+  gap: 12px;
 }
 
 .inventory-card {
   display: grid;
-  grid-template-columns: 72px 1fr;
+  grid-template-columns: 76px 1fr;
   gap: 14px;
   align-items: start;
+  padding: 14px;
 }
 
 .inventory-icon {
-  width: 72px;
-  height: 72px;
-  border-radius: 18px;
-  border: 1px solid rgba(255, 236, 205, 0.16);
+  width: 76px;
+  height: 76px;
+  border-radius: 4px;
 }
 
-.quest-active,
-.rarity-legendary {
-  border-color: rgba(255, 191, 99, 0.5);
+.enemy-card {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  gap: 14px;
+  align-items: start;
+  padding: 14px;
 }
 
-.quest-completed,
-.rarity-rare {
-  border-color: rgba(125, 201, 255, 0.5);
-}
-
-.quest-failed,
-.rarity-mythic {
-  border-color: rgba(255, 133, 125, 0.45);
-}
-
-.rarity-common {
-  border-color: rgba(214, 197, 175, 0.25);
-}
-
-.rarity-uncommon {
-  border-color: rgba(142, 211, 186, 0.45);
-}
-
-.rarity-epic {
-  border-color: rgba(190, 134, 215, 0.5);
+.enemy-avatar {
+  width: 96px;
+  height: 96px;
+  border-radius: 4px;
 }
 
 .npc-profile {
@@ -516,19 +539,13 @@ button {
   grid-template-columns: 88px 1fr;
   gap: 14px;
   align-items: start;
-  margin-bottom: 16px;
+  margin-bottom: 14px;
 }
 
 .npc-avatar {
   width: 88px;
-  height: 104px;
-  border-radius: 20px;
-  border: 1px solid rgba(255, 236, 205, 0.16);
-}
-
-.npc-profile p {
-  margin: 4px 0 0;
-  color: var(--muted);
+  height: 108px;
+  border-radius: 4px;
 }
 
 .npc-chat-feed {
@@ -541,196 +558,176 @@ button {
 }
 
 .npc-message {
-  padding: 12px 14px;
-  border-radius: 16px;
-}
-
-.npc-player {
-  background: rgba(125, 201, 255, 0.08);
-}
-
-.npc-npc {
-  background: rgba(255, 191, 99, 0.08);
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.03);
 }
 
 .npc-message p {
   margin: 8px 0 0;
 }
 
-.class-card,
-.enemy-card,
-.rules-card,
-.runtime-panel {
-  margin-top: 16px;
-  border: 1px solid rgba(255, 236, 205, 0.12);
-  background: rgba(0, 0, 0, 0.18);
-  border-radius: 18px;
-  padding: 16px;
+.npc-player {
+  background: rgba(255, 255, 255, 0.035);
 }
 
-.class-card p,
-.rules-card p,
-.enemy-card p {
-  margin: 6px 0 0;
-  color: var(--muted);
+.npc-npc {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.info-grid,
+.ability-grid,
+.stat-grid {
+  display: grid;
+  gap: 12px;
 }
 
 .info-grid,
 .ability-grid {
-  display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
 }
 
-.info-grid {
-  margin-bottom: 12px;
+.stat-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.stat-grid div,
 .info-grid div,
 .ability-grid div {
-  border: 1px solid rgba(255, 236, 205, 0.12);
-  background: rgba(0, 0, 0, 0.18);
-  border-radius: 16px;
   padding: 12px;
 }
 
-.info-grid span,
-.ability-grid span {
-  display: block;
-  color: var(--muted);
-  font-size: 0.8rem;
-}
-
-.ability-grid {
-  margin-top: 14px;
-}
-
+.stat-grid strong,
 .ability-grid strong {
-  font-size: 1.25rem;
+  font-size: 1.2rem;
 }
 
-.enemy-card {
-  display: grid;
-  grid-template-columns: 96px 1fr;
-  gap: 14px;
-  align-items: start;
+.meter-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
-.enemy-avatar {
-  width: 96px;
-  height: 96px;
-  border-radius: 18px;
-  border: 1px solid rgba(255, 236, 205, 0.16);
-  object-fit: cover;
+.meter-track {
+  height: 10px;
+  border: 1px solid var(--line);
+  background: #0b0b0b;
+  margin-top: 8px;
+}
+
+.meter-track span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #b8b8b1, #f5f5ef);
+}
+
+.plain-list {
+  margin: 12px 0 0;
+  padding-left: 18px;
+}
+
+.quest-active,
+.rarity-legendary,
+.rarity-mythic,
+.rarity-epic,
+.rarity-rare,
+.rarity-uncommon,
+.rarity-common,
+.quest-completed {
+  border-color: var(--line-strong);
 }
 
 .compact-tags {
   margin-top: 10px;
 }
 
-.memory-list {
-  margin-top: 14px;
+.arena-art-strip .art-thumb,
+.art-thumb {
+  width: calc(33.333% - 7px);
+  min-width: 78px;
+  aspect-ratio: 1 / 1;
+  border-radius: 4px;
 }
 
-@keyframes riseIn {
-  from {
-    opacity: 0;
-    transform: translateY(12px);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+.arena-command-panel {
+  position: sticky;
+  bottom: 12px;
+  z-index: 2;
 }
 
-@keyframes driftA {
-  from {
-    transform: translate(0, 0) scale(1);
-  }
-
-  to {
-    transform: translate(60px, 36px) scale(1.08);
-  }
+.arena-side-panel {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.035), transparent 24%),
+    var(--panel-soft);
 }
 
-@keyframes driftB {
-  from {
-    transform: translate(0, 0) scale(1);
-  }
-
-  to {
-    transform: translate(-36px, -48px) scale(1.1);
-  }
-}
-
-@media (max-width: 1120px) {
+@media (max-width: 1180px) {
   .hero-panel,
   .setup-grid,
-  .game-grid {
+  .arena-layout,
+  .arena-surroundings-grid,
+  .arena-actors-grid,
+  .arena-character-grid,
+  .arena-quests-grid {
     grid-template-columns: 1fr;
   }
 
-  .sidebar-column {
-    order: 2;
+  .arena-tab-bar {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
-  .story-column {
-    order: 1;
+  .arena-view-panel {
+    min-height: unset;
+  }
+
+  .arena-scroll-region {
+    max-height: unset;
   }
 }
 
 @media (max-width: 720px) {
   .app-frame {
-    width: min(100vw - 20px, 1440px);
-    padding-top: 16px;
+    width: min(100vw - 16px, 1480px);
+    padding-top: 10px;
   }
 
   .hero-panel,
   .panel,
   .story-card {
-    border-radius: 20px;
-  }
-
-  .hero-panel {
-    padding: 22px;
+    padding: 14px;
   }
 
   .story-header-panel,
-  .panel-header {
+  .panel-header,
+  .mini-card-header,
+  .meter-row {
     align-items: flex-start;
     flex-direction: column;
   }
 
-  .composer-panel {
-    position: sticky;
-    bottom: 10px;
-    z-index: 3;
-    background: rgba(24, 18, 21, 0.96);
+  .provider-button,
+  .ghost-button,
+  .primary-button,
+  .arena-tab-button {
+    width: 100%;
   }
 
-  .status-stack {
-    gap: 8px;
+  .arena-tab-bar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .inventory-card,
   .npc-profile,
-  .enemy-card {
-    grid-template-columns: 1fr;
-  }
-
+  .enemy-card,
+  .stat-grid,
   .info-grid,
   .ability-grid {
     grid-template-columns: 1fr;
   }
 
+  .arena-art-strip .art-thumb,
   .art-thumb {
-    width: calc(50% - 8px);
-  }
-
-  .provider-button,
-  .ghost-button,
-  .primary-button {
-    width: 100%;
+    width: calc(50% - 6px);
   }
 }

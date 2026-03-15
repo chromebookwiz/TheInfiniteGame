@@ -28,6 +28,7 @@ import type {
 } from "./types";
 
 const STORAGE_KEY = "the-infinite-game/session";
+type GameTab = "journal" | "surroundings" | "inventory" | "npcs" | "player" | "quests";
 
 function createStoryBeat(
   speaker: StorySpeaker,
@@ -60,6 +61,14 @@ function formatStoryTimestamp(timestamp: number): string {
   }).format(timestamp);
 }
 
+function formatResourceMeter(current: number, max: number): string {
+  if (max <= 0) {
+    return "0%";
+  }
+
+  return `${Math.max(0, Math.min(100, (current / max) * 100))}%`;
+}
+
 function isCompatibleSession(value: unknown): value is SavedSession {
   if (!value || typeof value !== "object") {
     return false;
@@ -90,6 +99,7 @@ function App() {
   const [openRouterKeyStored, setOpenRouterKeyStored] = useState(false);
   const [game, setGame] = useState<GameState | null>(null);
   const [selectedNpcId, setSelectedNpcId] = useState<string | undefined>(undefined);
+  const [activeTab, setActiveTab] = useState<GameTab>("surroundings");
   const [actionInput, setActionInput] = useState("");
   const [npcInput, setNpcInput] = useState("");
   const [busyLabel, setBusyLabel] = useState("");
@@ -290,6 +300,7 @@ function App() {
 
       setGame(nextGame);
       setSelectedNpcId(nextGame.npcs[0]?.id);
+      setActiveTab("surroundings");
       setActionInput("");
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Failed to start the adventure.");
@@ -330,6 +341,7 @@ function App() {
         ],
       };
       setGame(nextGame);
+      setActiveTab("journal");
       if (!selectedNpcId && nextGame.npcs[0]) {
         setSelectedNpcId(nextGame.npcs[0].id);
       }
@@ -380,6 +392,7 @@ function App() {
         },
       };
       setGame(nextGame);
+      setActiveTab("npcs");
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "The NPC did not respond.");
       setGame(game);
@@ -392,6 +405,7 @@ function App() {
     localStorage.removeItem(STORAGE_KEY);
     setGame(null);
     setSelectedNpcId(undefined);
+    setActiveTab("surroundings");
     setActionInput("");
     setNpcInput("");
     setBusyLabel("");
@@ -407,21 +421,28 @@ function App() {
   const usingCustomTheme = customTheme.trim().length > 0;
   const selectedClass = DND_CLASSES.find((entry) => entry.id === selectedClassId) ?? DND_CLASSES[0];
   const startDisabled = Boolean(busyLabel) || (selectedProvider === "webllm" ? !selectedModelId : !openRouterKeyStored || !selectedOpenRouterModel.trim());
+  const latestSceneArt = game?.artGallery.slice().reverse().find((art) => art.focus === "scene")?.url ?? game?.latestArtUrl;
+  const gameTabs: Array<{ id: GameTab; label: string }> = [
+    { id: "journal", label: "Journal" },
+    { id: "surroundings", label: "Surroundings" },
+    { id: "inventory", label: "Inventory" },
+    { id: "npcs", label: "NPCs + Enemies" },
+    { id: "player", label: "Character" },
+    { id: "quests", label: "Quests + Rules" },
+  ];
 
   return (
-    <div className="app-shell">
-      <div className="aurora aurora-one" />
-      <div className="aurora aurora-two" />
+    <div className="app-shell arena-shell">
       <main className="app-frame">
-        <header className="hero-panel">
+        <header className="hero-panel arena-hero">
           <div>
             <p className="eyebrow">Infinite Adventure Director</p>
             <h1>The Infinite Game</h1>
             <p className="hero-copy">
-              A mobile-capable adventure stack with local WebLLM play when the device can handle it, plus optional OpenRouter fallback using a user key stored encrypted at rest on the device.
+              An old-RPG command deck for an endless campaign. Explore through a live dungeon master, track your pack and known actors, and keep the current surroundings in view like a classic first-person CRPG.
             </p>
           </div>
-          <div className="status-stack">
+          <div className="status-stack arena-status-stack">
             <div className={`status-pill status-${engineStatus.phase}`}>{engineStatus.text}</div>
             {isMobile ? <div className="status-pill status-busy">Mobile device detected. OpenRouter is recommended for smoother play.</div> : null}
             {busyLabel ? <div className="status-pill status-busy">{busyLabel}</div> : null}
@@ -576,11 +597,11 @@ function App() {
             </article>
           </section>
         ) : (
-          <section className="game-grid">
-            <section className="story-column">
-              <div className="panel story-header-panel">
+          <section className="arena-layout">
+            <section className="arena-main-column">
+              <div className="panel story-header-panel arena-header-panel">
                 <div>
-                  <p className="eyebrow">Campaign</p>
+                  <p className="eyebrow">Campaign Frame</p>
                   <h2>{game.theme}</h2>
                   <p className="subtle-copy">
                     {game.environment.location} · {game.environment.atmosphere} · {game.player.className} · {game.selectedProvider === "openrouter" ? `OpenRouter ${game.selectedModelId}` : `WebLLM ${game.selectedModelId}`} · Turn {game.turnCount}
@@ -589,27 +610,333 @@ function App() {
                 <button type="button" className="ghost-button" onClick={handleReset}>Reset Campaign</button>
               </div>
 
-              <div className="story-feed">
-                {game.story.map((beat) => (
-                  <article key={beat.id} className={`story-card story-${beat.speaker}`}>
-                    <div className="story-meta">
-                      <span>{beat.speaker === "dm" ? "Dungeon Master" : beat.speaker === "player" ? game.playerName : "System"}</span>
-                      <span>{formatStoryTimestamp(beat.createdAt)}</span>
-                    </div>
-                    <p>{beat.content}</p>
-                    {beat.imageUrl ? <img className="story-image" src={beat.imageUrl} alt="Generated scene art" /> : null}
-                    {beat.toolEvents.length > 0 ? (
-                      <div className="tool-event-row">
-                        {beat.toolEvents.map((toolEvent) => (
-                          <span key={toolEvent.id} className="tool-event-chip">{toolEvent.summary}</span>
-                        ))}
-                      </div>
-                    ) : null}
-                  </article>
+              <div className="panel arena-tab-bar">
+                {gameTabs.map((tab) => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    className={`arena-tab-button ${activeTab === tab.id ? "arena-tab-button-active" : ""}`}
+                    onClick={() => setActiveTab(tab.id)}
+                  >
+                    {tab.label}
+                  </button>
                 ))}
               </div>
 
-              <div className="panel composer-panel">
+              <div className="panel arena-view-panel">
+                {activeTab === "journal" ? (
+                  <>
+                    <div className="panel-header">
+                      <p className="eyebrow">Journal Log</p>
+                      <span className="meta-chip">{game.story.length} entries</span>
+                    </div>
+                    <div className="story-feed arena-scroll-region">
+                      {game.story.map((beat) => (
+                        <article key={beat.id} className={`story-card story-${beat.speaker}`}>
+                          <div className="story-meta">
+                            <span>{beat.speaker === "dm" ? "Dungeon Master" : beat.speaker === "player" ? game.playerName : "System"}</span>
+                            <span>{formatStoryTimestamp(beat.createdAt)}</span>
+                          </div>
+                          <p>{beat.content}</p>
+                          {beat.imageUrl ? <img className="story-image" src={beat.imageUrl} alt="Generated scene art" /> : null}
+                          {beat.toolEvents.length > 0 ? (
+                            <div className="tool-event-row">
+                              {beat.toolEvents.map((toolEvent) => (
+                                <span key={toolEvent.id} className="tool-event-chip">{toolEvent.summary}</span>
+                              ))}
+                            </div>
+                          ) : null}
+                        </article>
+                      ))}
+                    </div>
+                  </>
+                ) : null}
+
+                {activeTab === "surroundings" ? (
+                  <>
+                    <div className="panel-header">
+                      <p className="eyebrow">Surroundings</p>
+                      <span className="meta-chip">{game.environment.timeOfDay}</span>
+                    </div>
+                    <div className="arena-scene-frame">
+                      {latestSceneArt ? (
+                        <img className="hero-art arena-scene-image" src={latestSceneArt} alt={`Surroundings near ${game.environment.location}`} />
+                      ) : (
+                        <div className="art-placeholder arena-placeholder">The dungeon master has not painted the current surroundings yet.</div>
+                      )}
+                    </div>
+                    <div className="arena-surroundings-grid">
+                      <article className="mini-card arena-panel-card">
+                        <div className="mini-card-header">
+                          <strong>{game.environment.location}</strong>
+                          <span className="meta-chip">{game.environment.biome}</span>
+                        </div>
+                        <p>{game.environment.sceneSummary}</p>
+                        <div className="tag-row compact-tags">
+                          <span className="meta-chip">Weather: {game.environment.weather}</span>
+                          <span className="meta-chip">Pressure: {game.environment.pressureClock}</span>
+                          <span className="meta-chip">Mood: {game.environment.atmosphere}</span>
+                        </div>
+                      </article>
+                      <article className="mini-card arena-panel-card">
+                        <strong>Hazards and exits</strong>
+                        <div className="tag-row compact-tags">
+                          {(game.environment.hazards.length > 0 ? game.environment.hazards : ["no active hazards"]).map((hazard) => (
+                            <span key={hazard} className="meta-chip">{hazard}</span>
+                          ))}
+                        </div>
+                        <div className="tag-row compact-tags">
+                          {(game.environment.exits.length > 0 ? game.environment.exits : ["no obvious exits"]).map((exit) => (
+                            <span key={exit} className="meta-chip">{exit}</span>
+                          ))}
+                        </div>
+                        <div className="tag-row compact-tags">
+                          {(game.environment.factions.length > 0 ? game.environment.factions : ["no known factions"]).map((faction) => (
+                            <span key={faction} className="meta-chip">{faction}</span>
+                          ))}
+                        </div>
+                      </article>
+                    </div>
+                  </>
+                ) : null}
+
+                {activeTab === "inventory" ? (
+                  <>
+                    <div className="panel-header">
+                      <p className="eyebrow">Inventory</p>
+                      <span className="meta-chip">{game.inventory.length} items</span>
+                    </div>
+                    <div className="stack-list arena-scroll-region">
+                      {game.inventory.length === 0 ? (
+                        <div className="art-placeholder arena-placeholder">Your pack is empty.</div>
+                      ) : (
+                        game.inventory.map((item) => (
+                          <article key={item.id} className="inventory-card arena-panel-card">
+                            <img src={item.iconUrl} alt={item.name} className="inventory-icon" />
+                            <div>
+                              <div className="mini-card-header">
+                                <strong>{item.name}</strong>
+                                <span className={`rarity-badge rarity-${item.rarity}`}>{item.rarity}</span>
+                              </div>
+                              <p>{item.description}</p>
+                              <div className="tag-row compact-tags">
+                                <span className="meta-chip">Qty {item.quantity}</span>
+                                <span className="meta-chip">Slot {item.slot}</span>
+                                <span className="meta-chip">Weight {item.weight}</span>
+                                <span className="meta-chip">Value {item.value}</span>
+                                {item.tags.map((tag) => <span key={tag} className="meta-chip">{tag}</span>)}
+                              </div>
+                            </div>
+                          </article>
+                        ))
+                      )}
+                    </div>
+                  </>
+                ) : null}
+
+                {activeTab === "npcs" ? (
+                  <>
+                    <div className="panel-header">
+                      <p className="eyebrow">NPCs and Enemies</p>
+                      <span className="meta-chip">{game.npcs.length} contacts · {game.enemies.length} foes</span>
+                    </div>
+                    <div className="arena-actors-grid">
+                      <section className="arena-actor-column">
+                        <div className="panel-header">
+                          <strong>Known NPCs</strong>
+                          <span className="meta-chip">{game.npcs.length}</span>
+                        </div>
+                        <div className="npc-roster">
+                          {game.npcs.length === 0 ? (
+                            <p className="subtle-copy">No known contacts yet.</p>
+                          ) : (
+                            game.npcs.map((npc) => (
+                              <button
+                                key={npc.id}
+                                type="button"
+                                className={`npc-chip ${activeNpc?.id === npc.id ? "npc-chip-active" : ""}`}
+                                onClick={() => setSelectedNpcId(npc.id)}
+                              >
+                                {npc.name}
+                              </button>
+                            ))
+                          )}
+                        </div>
+                        {activeNpc ? (
+                          <div className="npc-chat-shell arena-panel-card">
+                            <div className="npc-profile">
+                              <img src={activeNpc.avatarUrl} alt={activeNpc.name} className="npc-avatar" />
+                              <div>
+                                <strong>{activeNpc.name}</strong>
+                                <p>{activeNpc.archetype}</p>
+                                <p>{activeNpc.personality}</p>
+                              </div>
+                            </div>
+                            <div className="npc-chat-feed">
+                              {activeNpcChat.map((message) => (
+                                <article key={message.id} className={`npc-message npc-${message.role}`}>
+                                  <strong>{message.role === "npc" ? activeNpc.name : game.playerName}</strong>
+                                  <p>{message.content}</p>
+                                </article>
+                              ))}
+                            </div>
+                            <textarea
+                              className="text-area compact-area"
+                              placeholder={`Ask ${activeNpc.name} anything.`}
+                              value={npcInput}
+                              onChange={(event) => setNpcInput(event.target.value)}
+                              disabled={Boolean(busyLabel)}
+                            />
+                            <button type="button" className="primary-button" onClick={handleNpcSend} disabled={Boolean(busyLabel) || !npcInput.trim()}>
+                              Send Message
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="art-placeholder arena-placeholder">When the DM introduces someone important, their dedicated chat appears here.</div>
+                        )}
+                      </section>
+
+                      <section className="arena-actor-column">
+                        <div className="panel-header">
+                          <strong>Active Enemies</strong>
+                          <span className="meta-chip">{game.enemies.length}</span>
+                        </div>
+                        <div className="stack-list arena-scroll-region">
+                          {game.enemies.length === 0 ? (
+                            <div className="art-placeholder arena-placeholder">No active enemies.</div>
+                          ) : (
+                            game.enemies.map((enemy) => (
+                              <article key={enemy.id} className="enemy-card arena-panel-card">
+                                <img src={enemy.artUrl} alt={enemy.name} className="enemy-avatar" />
+                                <div>
+                                  <div className="mini-card-header">
+                                    <strong>{enemy.name}</strong>
+                                    <span className="meta-chip">Lv {enemy.level}</span>
+                                  </div>
+                                  <p>{enemy.archetype} · {enemy.disposition}</p>
+                                  <div className="tag-row compact-tags">
+                                    <span className="meta-chip">HP {enemy.stats.health}/{enemy.stats.maxHealth}</span>
+                                    <span className="meta-chip">AC {enemy.stats.armorClass}</span>
+                                    <span className="meta-chip">ATK {enemy.stats.attack}</span>
+                                    <span className="meta-chip">MAG {enemy.stats.magic}</span>
+                                    <span className="meta-chip">THR {enemy.stats.threat}</span>
+                                    {enemy.tags.map((tag) => <span key={tag} className="meta-chip">{tag}</span>)}
+                                  </div>
+                                </div>
+                              </article>
+                            ))
+                          )}
+                        </div>
+                      </section>
+                    </div>
+                  </>
+                ) : null}
+
+                {activeTab === "player" ? (
+                  <>
+                    <div className="panel-header">
+                      <p className="eyebrow">Character Sheet</p>
+                      <span className="meta-chip">{game.player.className}</span>
+                    </div>
+                    <div className="arena-character-grid">
+                      <article className="mini-card arena-panel-card">
+                        <strong>{game.playerName}</strong>
+                        <p>{game.player.background || game.player.className}</p>
+                        <div className="stat-grid">
+                          <div><span>Health</span><strong>{game.player.resources.health}/{game.player.resources.maxHealth}</strong></div>
+                          <div><span>Mana</span><strong>{game.player.resources.mana}/{game.player.resources.maxMana}</strong></div>
+                          <div><span>Stamina</span><strong>{game.player.resources.stamina}/{game.player.resources.maxStamina}</strong></div>
+                          <div><span>Armor</span><strong>{game.player.resources.armorClass}</strong></div>
+                          <div><span>Gold</span><strong>{game.player.resources.gold}</strong></div>
+                          <div><span>Level</span><strong>{game.player.level}</strong></div>
+                        </div>
+                        <div className="ability-grid">
+                          {Object.entries(game.player.abilityScores).map(([ability, value]) => (
+                            <div key={ability}><span>{ability.slice(0, 3).toUpperCase()}</span><strong>{value}</strong></div>
+                          ))}
+                        </div>
+                      </article>
+                      <article className="mini-card arena-panel-card">
+                        <div className="mini-card-header">
+                          <strong>Spells and techniques</strong>
+                          <span className="meta-chip">{game.player.spells.length}</span>
+                        </div>
+                        <div className="stack-list arena-scroll-region">
+                          {game.player.spells.length === 0 ? (
+                            <p className="subtle-copy">No active spells or techniques yet.</p>
+                          ) : (
+                            game.player.spells.map((spell) => (
+                              <article key={spell.id} className="mini-card arena-sub-card">
+                                <div className="mini-card-header">
+                                  <strong>{spell.name}</strong>
+                                  <span className="meta-chip">Lv {spell.level}</span>
+                                </div>
+                                <p>{spell.description}</p>
+                                <div className="tag-row compact-tags">
+                                  <span className="meta-chip">{spell.school}</span>
+                                  <span className="meta-chip">Cost {spell.resourceCost}</span>
+                                  <span className="meta-chip">{spell.range}</span>
+                                </div>
+                              </article>
+                            ))
+                          )}
+                        </div>
+                      </article>
+                    </div>
+                  </>
+                ) : null}
+
+                {activeTab === "quests" ? (
+                  <>
+                    <div className="panel-header">
+                      <p className="eyebrow">Quests and Rules</p>
+                      <span className="meta-chip">{game.quests.length} quests</span>
+                    </div>
+                    <div className="arena-quests-grid">
+                      <section className="stack-list arena-scroll-region">
+                        {game.quests.length === 0 ? (
+                          <div className="art-placeholder arena-placeholder">The DM has not assigned a quest yet.</div>
+                        ) : (
+                          game.quests.map((quest) => (
+                            <article key={quest.id} className="mini-card arena-panel-card">
+                              <div className="mini-card-header">
+                                <strong>{quest.title}</strong>
+                                <span className={`quest-badge quest-${quest.status}`}>{quest.status}</span>
+                              </div>
+                              <p>{quest.summary}</p>
+                              <ul className="plain-list">
+                                {quest.steps.map((step) => <li key={step}>{step}</li>)}
+                              </ul>
+                            </article>
+                          ))
+                        )}
+                      </section>
+                      <section className="stack-list arena-scroll-region">
+                        <article className="mini-card arena-panel-card rules-card">
+                          <strong>{game.ruleset.rulesSummary}</strong>
+                          <p>{game.ruleset.combatStyle}</p>
+                          <div className="tag-row compact-tags">
+                            <span className="meta-chip">Magic: {game.ruleset.magicRules}</span>
+                            <span className="meta-chip">Rests: {game.ruleset.restStyle}</span>
+                            <span className="meta-chip">Social: {game.ruleset.socialRules}</span>
+                          </div>
+                        </article>
+                        {game.memoryLedger.slice(0, 8).map((memory) => (
+                          <article key={memory.id} className="mini-card arena-panel-card">
+                            <div className="mini-card-header">
+                              <strong>{memory.title}</strong>
+                              <span className="meta-chip">{memory.category}</span>
+                            </div>
+                            <p>{memory.text}</p>
+                          </article>
+                        ))}
+                      </section>
+                    </div>
+                  </>
+                ) : null}
+              </div>
+
+              <div className="panel composer-panel arena-command-panel">
                 <label className="field-label" htmlFor="story-action">What do you do?</label>
                 <textarea
                   id="story-action"
@@ -625,8 +952,8 @@ function App() {
               </div>
             </section>
 
-            <aside className="sidebar-column">
-              <div className="panel runtime-panel">
+            <aside className="arena-side-column">
+              <div className="panel runtime-panel arena-side-panel">
                 <div className="panel-header">
                   <p className="eyebrow">Runtime</p>
                   <span className="meta-chip">{game.selectedProvider}</span>
@@ -639,59 +966,52 @@ function App() {
                 )}
               </div>
 
-              <div className="panel art-panel">
+              <div className="panel arena-side-panel">
                 <div className="panel-header">
-                  <p className="eyebrow">Generated Art</p>
-                  <span className="meta-chip">{game.artGallery.length} frames</span>
+                  <p className="eyebrow">Condition</p>
+                  <span className="meta-chip">Turn {game.turnCount}</span>
                 </div>
-                {game.latestArtUrl ? (
-                  <img className="hero-art" src={game.latestArtUrl} alt="Latest generated art" />
-                ) : (
-                  <div className="art-placeholder">The DM can generate scene, enemy, portrait, or item art whenever it helps the player.</div>
-                )}
-                <div className="art-strip">
-                  {game.artGallery.slice(0, 4).map((art) => (
-                    <img key={art.id} src={art.url} alt={art.prompt} className="art-thumb" />
-                  ))}
+                <div className="meter-list">
+                  <div>
+                    <div className="meter-row"><span>Health</span><strong>{game.player.resources.health}/{game.player.resources.maxHealth}</strong></div>
+                    <div className="meter-track"><span style={{ width: formatResourceMeter(game.player.resources.health, game.player.resources.maxHealth) }} /></div>
+                  </div>
+                  <div>
+                    <div className="meter-row"><span>Mana</span><strong>{game.player.resources.mana}/{game.player.resources.maxMana}</strong></div>
+                    <div className="meter-track"><span style={{ width: formatResourceMeter(game.player.resources.mana, game.player.resources.maxMana) }} /></div>
+                  </div>
+                  <div>
+                    <div className="meter-row"><span>Stamina</span><strong>{game.player.resources.stamina}/{game.player.resources.maxStamina}</strong></div>
+                    <div className="meter-track"><span style={{ width: formatResourceMeter(game.player.resources.stamina, game.player.resources.maxStamina) }} /></div>
+                  </div>
                 </div>
               </div>
 
-              <div className="panel world-panel">
+              <div className="panel arena-side-panel">
                 <div className="panel-header">
-                  <p className="eyebrow">Environment</p>
+                  <p className="eyebrow">Location</p>
                   <span className="meta-chip">{game.environment.timeOfDay}</span>
                 </div>
-                <div className="info-grid">
-                  <div><span>Biome</span><strong>{game.environment.biome}</strong></div>
-                  <div><span>Weather</span><strong>{game.environment.weather}</strong></div>
-                  <div><span>Pressure</span><strong>{game.environment.pressureClock}</strong></div>
-                  <div><span>Exits</span><strong>{game.environment.exits.join(", ") || "none"}</strong></div>
-                </div>
+                <strong>{game.environment.location}</strong>
+                <p className="subtle-copy">{game.environment.sceneSummary}</p>
                 <div className="tag-row">
                   {game.environment.hazards.map((hazard) => <span key={hazard} className="meta-chip">{hazard}</span>)}
                   {game.environment.factions.map((faction) => <span key={faction} className="meta-chip">{faction}</span>)}
                 </div>
               </div>
 
-              <div className="panel stats-panel">
+              <div className="panel arena-side-panel">
                 <div className="panel-header">
-                  <p className="eyebrow">Player Sheet</p>
+                  <p className="eyebrow">Quick Sheet</p>
                   <span className="meta-chip">{game.player.className}</span>
                 </div>
                 <div className="stat-grid">
-                  <div><span>Health</span><strong>{game.player.resources.health}/{game.player.resources.maxHealth}</strong></div>
-                  <div><span>Mana</span><strong>{game.player.resources.mana}/{game.player.resources.maxMana}</strong></div>
-                  <div><span>Stamina</span><strong>{game.player.resources.stamina}/{game.player.resources.maxStamina}</strong></div>
-                  <div><span>Armor</span><strong>{game.player.resources.armorClass}</strong></div>
                   <div><span>Luck</span><strong>{game.player.resources.luck}</strong></div>
                   <div><span>Renown</span><strong>{game.player.resources.renown}</strong></div>
+                  <div><span>Armor</span><strong>{game.player.resources.armorClass}</strong></div>
                   <div><span>Gold</span><strong>{game.player.resources.gold}</strong></div>
                   <div><span>Level</span><strong>{game.player.level}</strong></div>
-                </div>
-                <div className="ability-grid">
-                  {Object.entries(game.player.abilityScores).map(([ability, value]) => (
-                    <div key={ability}><span>{ability.slice(0, 3).toUpperCase()}</span><strong>{value}</strong></div>
-                  ))}
+                  <div><span>XP</span><strong>{game.player.xp}</strong></div>
                 </div>
                 <div className="tag-row">
                   {game.player.classFeatures.map((feature) => <span key={feature} className="meta-chip">{feature}</span>)}
@@ -699,202 +1019,20 @@ function App() {
                 </div>
               </div>
 
-              <div className="panel spell-panel">
+              <div className="panel arena-side-panel">
                 <div className="panel-header">
-                  <p className="eyebrow">Spells & Techniques</p>
-                  <span className="meta-chip">{game.player.spells.length}</span>
+                  <p className="eyebrow">Recent Art</p>
+                  <span className="meta-chip">{game.artGallery.length} frames</span>
                 </div>
-                <div className="stack-list">
-                  {game.player.spells.length === 0 ? (
-                    <p className="subtle-copy">No active spells or techniques yet.</p>
-                  ) : (
-                    game.player.spells.map((spell) => (
-                      <article key={spell.id} className="mini-card">
-                        <div className="mini-card-header">
-                          <strong>{spell.name}</strong>
-                          <span className="meta-chip">Lv {spell.level}</span>
-                        </div>
-                        <p>{spell.description}</p>
-                        <div className="tag-row">
-                          <span className="meta-chip">{spell.school}</span>
-                          <span className="meta-chip">cost {spell.resourceCost}</span>
-                          <span className="meta-chip">{spell.range}</span>
-                          {spell.tags.map((tag) => <span key={tag} className="meta-chip">{tag}</span>)}
-                        </div>
-                      </article>
-                    ))
-                  )}
-                </div>
-              </div>
-
-              <div className="panel enemy-panel">
-                <div className="panel-header">
-                  <p className="eyebrow">Enemies</p>
-                  <span className="meta-chip">{game.enemies.length}</span>
-                </div>
-                <div className="stack-list">
-                  {game.enemies.length === 0 ? (
-                    <p className="subtle-copy">No active enemies.</p>
-                  ) : (
-                    game.enemies.map((enemy) => (
-                      <article key={enemy.id} className="enemy-card">
-                        <img src={enemy.artUrl} alt={enemy.name} className="enemy-avatar" />
-                        <div>
-                          <div className="mini-card-header">
-                            <strong>{enemy.name}</strong>
-                            <span className="meta-chip">Lv {enemy.level}</span>
-                          </div>
-                          <p>{enemy.archetype} · {enemy.disposition}</p>
-                          <div className="tag-row compact-tags">
-                            <span className="meta-chip">HP {enemy.stats.health}/{enemy.stats.maxHealth}</span>
-                            <span className="meta-chip">AC {enemy.stats.armorClass}</span>
-                            <span className="meta-chip">ATK {enemy.stats.attack}</span>
-                            <span className="meta-chip">MAG {enemy.stats.magic}</span>
-                            <span className="meta-chip">THR {enemy.stats.threat}</span>
-                            {enemy.tags.map((tag) => <span key={tag} className="meta-chip">{tag}</span>)}
-                          </div>
-                        </div>
-                      </article>
-                    ))
-                  )}
-                </div>
-              </div>
-
-              <div className="panel quest-panel">
-                <div className="panel-header">
-                  <p className="eyebrow">Quests</p>
-                  <span className="meta-chip">{game.quests.length}</span>
-                </div>
-                <div className="stack-list">
-                  {game.quests.length === 0 ? (
-                    <p className="subtle-copy">The DM has not assigned a quest yet.</p>
-                  ) : (
-                    game.quests.map((quest) => (
-                      <article key={quest.id} className="mini-card">
-                        <div className="mini-card-header">
-                          <strong>{quest.title}</strong>
-                          <span className={`quest-badge quest-${quest.status}`}>{quest.status}</span>
-                        </div>
-                        <p>{quest.summary}</p>
-                        <ul className="plain-list">
-                          {quest.steps.map((step) => <li key={step}>{step}</li>)}
-                        </ul>
-                      </article>
-                    ))
-                  )}
-                </div>
-              </div>
-
-              <div className="panel inventory-panel">
-                <div className="panel-header">
-                  <p className="eyebrow">Inventory</p>
-                  <span className="meta-chip">{game.inventory.length} items</span>
-                </div>
-                <div className="stack-list">
-                  {game.inventory.length === 0 ? (
-                    <p className="subtle-copy">Your pack is still empty.</p>
-                  ) : (
-                    game.inventory.map((item) => (
-                      <article key={item.id} className="inventory-card">
-                        <img src={item.iconUrl} alt={item.name} className="inventory-icon" />
-                        <div>
-                          <div className="mini-card-header">
-                            <strong>{item.name}</strong>
-                            <span className={`rarity-badge rarity-${item.rarity}`}>{item.rarity}</span>
-                          </div>
-                          <p>{item.description}</p>
-                          <div className="tag-row compact-tags">
-                            <span className="meta-chip">x{item.quantity}</span>
-                            <span className="meta-chip">{item.slot}</span>
-                            <span className="meta-chip">wt {item.weight}</span>
-                            <span className="meta-chip">value {item.value}</span>
-                            {item.tags.map((tag) => <span key={tag} className="meta-chip">{tag}</span>)}
-                          </div>
-                        </div>
-                      </article>
-                    ))
-                  )}
-                </div>
-              </div>
-
-              <div className="panel memory-panel">
-                <div className="panel-header">
-                  <p className="eyebrow">Memory & Rules</p>
-                  <span className="meta-chip">{game.ruleset.canonBaseline}</span>
-                </div>
-                <article className="mini-card rules-card">
-                  <strong>{game.ruleset.rulesSummary}</strong>
-                  <p>{game.ruleset.combatStyle}</p>
-                  <div className="tag-row compact-tags">
-                    <span className="meta-chip">magic: {game.ruleset.magicRules}</span>
-                    <span className="meta-chip">rests: {game.ruleset.restStyle}</span>
-                    <span className="meta-chip">social: {game.ruleset.socialRules}</span>
+                {game.artGallery.length > 0 ? (
+                  <div className="art-strip arena-art-strip">
+                    {game.artGallery.slice(0, 6).map((art) => (
+                      <img key={art.id} src={art.url} alt={art.prompt} className="art-thumb" />
+                    ))}
                   </div>
-                </article>
-                <div className="stack-list memory-list">
-                  {game.memoryLedger.slice(0, 6).map((memory) => (
-                    <article key={memory.id} className="mini-card">
-                      <div className="mini-card-header">
-                        <strong>{memory.title}</strong>
-                        <span className="meta-chip">{memory.category}</span>
-                      </div>
-                      <p>{memory.text}</p>
-                    </article>
-                  ))}
-                </div>
-              </div>
-
-              <div className="panel npc-panel">
-                <div className="panel-header">
-                  <p className="eyebrow">NPC Comms</p>
-                  <span className="meta-chip">{game.npcs.length}</span>
-                </div>
-                <div className="npc-roster">
-                  {game.npcs.length === 0 ? (
-                    <p className="subtle-copy">No known contacts yet. When the DM introduces someone important, a dedicated chat opens here.</p>
-                  ) : (
-                    game.npcs.map((npc) => (
-                      <button
-                        key={npc.id}
-                        type="button"
-                        className={`npc-chip ${activeNpc?.id === npc.id ? "npc-chip-active" : ""}`}
-                        onClick={() => setSelectedNpcId(npc.id)}
-                      >
-                        {npc.name}
-                      </button>
-                    ))
-                  )}
-                </div>
-                {activeNpc ? (
-                  <div className="npc-chat-shell">
-                    <div className="npc-profile">
-                      <img src={activeNpc.avatarUrl} alt={activeNpc.name} className="npc-avatar" />
-                      <div>
-                        <strong>{activeNpc.name}</strong>
-                        <p>{activeNpc.archetype}</p>
-                        <p>{activeNpc.personality}</p>
-                      </div>
-                    </div>
-                    <div className="npc-chat-feed">
-                      {activeNpcChat.map((message) => (
-                        <article key={message.id} className={`npc-message npc-${message.role}`}>
-                          <strong>{message.role === "npc" ? activeNpc.name : game.playerName}</strong>
-                          <p>{message.content}</p>
-                        </article>
-                      ))}
-                    </div>
-                    <textarea
-                      className="text-area compact-area"
-                      placeholder={`Ask ${activeNpc.name} anything.`}
-                      value={npcInput}
-                      onChange={(event) => setNpcInput(event.target.value)}
-                      disabled={Boolean(busyLabel)}
-                    />
-                    <button type="button" className="primary-button" onClick={handleNpcSend} disabled={Boolean(busyLabel) || !npcInput.trim()}>
-                      Send Message
-                    </button>
-                  </div>
-                ) : null}
+                ) : (
+                  <div className="art-placeholder arena-placeholder">Scene, enemy, portrait, and item art appears here as the DM generates it.</div>
+                )}
               </div>
             </aside>
           </section>
