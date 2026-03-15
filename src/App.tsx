@@ -737,15 +737,30 @@ function App() {
   ];
 
   return (
-    <div className="app-shell arena-shell">
+    <div className={`app-shell arena-shell ${game ? "in-game-shell" : "home-terminal-shell"}`}>
+      {!game ? (
+        <div className="home-rgb-grid" aria-hidden="true">
+          <span className="rgb-line rgb-line-red" />
+          <span className="rgb-line rgb-line-green" />
+          <span className="rgb-line rgb-line-blue" />
+        </div>
+      ) : null}
       <main className="app-frame">
-        <header className="hero-panel arena-hero">
+        <header className={`hero-panel arena-hero ${game ? "" : "terminal-hero"}`}>
           <div>
-            <p className="eyebrow">Infinite Adventure Director</p>
-            <h1>The Infinite Game</h1>
-            <p className="hero-copy">
+            <p className="eyebrow terminal-eyebrow">Infinite Adventure Director</p>
+            {!game ? <p className="terminal-prompt">C:\&gt; boot infinite_game.exe --interactive</p> : null}
+            <h1 className={!game ? "terminal-title" : undefined}>The Infinite Game</h1>
+            <p className={`hero-copy ${!game ? "terminal-copy" : ""}`}>
               An old-RPG command deck for an endless campaign. Explore through a live dungeon master, track your pack and known actors, and keep the current surroundings in view like a classic first-person CRPG.
             </p>
+            {!game ? (
+              <div className="terminal-meta-row">
+                <span className="terminal-box">STATUS: READY</span>
+                <span className="terminal-box">THEME: MONO CRT</span>
+                <span className="terminal-box">INPUT: LIVE</span>
+              </div>
+            ) : null}
           </div>
           <div className="status-stack arena-status-stack">
             <div className={`status-pill status-${engineStatus.phase}`}>{engineStatus.text}</div>
@@ -764,7 +779,7 @@ function App() {
         </header>
 
         {!game ? (
-          <section className="setup-grid setup-grid-wide">
+          <section className="setup-grid setup-grid-wide terminal-setup-grid">
             <article className="panel spotlight-panel">
               <div className="panel-header">
                 <p className="eyebrow">1. Theme Seed</p>
@@ -780,6 +795,7 @@ function App() {
               <p className="subtle-copy">
                 Random mode draws from {STARTING_CONDITIONS.length} opening conditions. A custom theme overrides the seed while the DM keeps one structured simulation layer behind the story.
               </p>
+              <div className="terminal-divider" aria-hidden="true" />
               <label className="field-label" htmlFor="custom-theme">
                 Custom theme or opening condition
               </label>
@@ -796,6 +812,7 @@ function App() {
               <div className="panel-header">
                 <p className="eyebrow">2. Runtime + Player</p>
               </div>
+              <div className="terminal-divider" aria-hidden="true" />
 
               <label className="field-label">Runtime provider</label>
               <div className="provider-toggle">
@@ -973,6 +990,7 @@ function App() {
                   </button>
                 ) : null}
               </div>
+              <div className="terminal-divider" aria-hidden="true" />
 
               {!supabaseEnabled ? (
                 <div className="mini-card status-card">

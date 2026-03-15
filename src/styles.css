@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=IBM+Plex+Mono:wght@400;500;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Audiowide&family=IBM+Plex+Mono:wght@400;500;700&family=VT323&display=swap");
 
 :root {
   color-scheme: dark;
@@ -12,6 +12,9 @@
   --line: #343434;
   --line-strong: #535353;
   --accent: #f2f2ea;
+  --rgb-red: #ff4d4d;
+  --rgb-green: #4dff88;
+  --rgb-blue: #53a7ff;
   --shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
 }
 
@@ -31,7 +34,7 @@ body {
     radial-gradient(circle at top center, rgba(255, 255, 255, 0.08), transparent 32%),
     linear-gradient(180deg, #050505 0%, #0a0a0a 42%, #050505 100%);
   color: var(--text);
-  font-family: "Cinzel", serif;
+  font-family: "Audiowide", cursive;
 }
 
 button,
@@ -129,6 +132,22 @@ button {
   font-family: "IBM Plex Mono", monospace;
 }
 
+.terminal-title,
+.terminal-prompt,
+.terminal-box,
+.home-terminal-shell .spotlight-copy,
+.home-terminal-shell .text-input,
+.home-terminal-shell .text-area,
+.home-terminal-shell .provider-button,
+.home-terminal-shell .ghost-button,
+.home-terminal-shell .primary-button,
+.home-terminal-shell .seed-chip,
+.home-terminal-shell .subtle-copy,
+.home-terminal-shell .panel p,
+.home-terminal-shell .status-pill {
+  font-family: "VT323", monospace;
+}
+
 .eyebrow {
   margin: 0 0 8px;
   color: var(--muted);
@@ -177,6 +196,242 @@ button {
   padding: 8px 11px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.03);
+}
+
+.home-terminal-shell {
+  position: relative;
+  background:
+    radial-gradient(circle at top, rgba(255, 255, 255, 0.06), transparent 18%),
+    repeating-linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.03) 0,
+      rgba(255, 255, 255, 0.03) 1px,
+      transparent 1px,
+      transparent 4px
+    ),
+    #010101;
+}
+
+.home-rgb-grid {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.7;
+  overflow: hidden;
+}
+
+.rgb-line {
+  position: absolute;
+  display: block;
+  height: 1px;
+  left: 0;
+  right: 0;
+  box-shadow: 0 0 14px currentColor;
+}
+
+.rgb-line-red {
+  top: 14%;
+  color: var(--rgb-red);
+}
+
+.rgb-line-green {
+  top: 52%;
+  color: var(--rgb-green);
+}
+
+.rgb-line-blue {
+  top: 84%;
+  color: var(--rgb-blue);
+}
+
+.home-terminal-shell .app-frame {
+  position: relative;
+  z-index: 1;
+}
+
+.terminal-hero,
+.home-terminal-shell .panel {
+  border-radius: 0;
+  border-color: rgba(255, 255, 255, 0.88);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 18%),
+    rgba(0, 0, 0, 0.92);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.08),
+    0 0 0 1px rgba(255, 255, 255, 0.08),
+    0 20px 50px rgba(0, 0, 0, 0.45);
+}
+
+.terminal-hero {
+  position: relative;
+  overflow: hidden;
+}
+
+.terminal-hero::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--rgb-red), var(--rgb-green), var(--rgb-blue));
+}
+
+.terminal-eyebrow {
+  color: #ffffff;
+}
+
+.terminal-prompt {
+  margin: 0 0 8px;
+  color: rgba(255, 255, 255, 0.78);
+  font-size: clamp(1.15rem, 2vw, 1.5rem);
+  letter-spacing: 0.08em;
+}
+
+.terminal-title {
+  font-family: "Audiowide", cursive;
+  font-size: clamp(2.8rem, 6vw, 5.1rem);
+  letter-spacing: 0.16em;
+  text-shadow:
+    -2px 0 0 rgba(255, 77, 77, 0.35),
+    2px 0 0 rgba(83, 167, 255, 0.35),
+    0 0 24px rgba(255, 255, 255, 0.14);
+}
+
+.terminal-copy {
+  max-width: 66ch;
+  color: rgba(255, 255, 255, 0.86);
+  font-size: clamp(1.2rem, 2vw, 1.55rem);
+}
+
+.terminal-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.terminal-box {
+  display: inline-flex;
+  align-items: center;
+  min-height: 38px;
+  padding: 6px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.92);
+  background: #020202;
+  color: #ffffff;
+  letter-spacing: 0.1em;
+  font-size: 1.1rem;
+}
+
+.terminal-setup-grid .panel-header,
+.terminal-setup-grid .mini-card-header {
+  align-items: flex-start;
+}
+
+.terminal-divider {
+  height: 1px;
+  margin: 8px 0 4px;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.92), transparent);
+}
+
+.home-terminal-shell .hero-copy,
+.home-terminal-shell .subtle-copy,
+.home-terminal-shell .panel p,
+.home-terminal-shell .story-meta,
+.home-terminal-shell .info-grid span,
+.home-terminal-shell .ability-grid span,
+.home-terminal-shell .stat-grid span,
+.home-terminal-shell .plain-list,
+.home-terminal-shell .npc-profile p,
+.home-terminal-shell .meter-row span {
+  color: rgba(255, 255, 255, 0.76);
+}
+
+.home-terminal-shell .status-pill,
+.home-terminal-shell .meta-chip,
+.home-terminal-shell .seed-chip,
+.home-terminal-shell .npc-chip,
+.home-terminal-shell .quest-badge,
+.home-terminal-shell .rarity-badge,
+.home-terminal-shell .tool-event-chip {
+  border-radius: 0;
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.8);
+  background: #050505;
+}
+
+.home-terminal-shell .status-ready,
+.home-terminal-shell .provider-button-active,
+.home-terminal-shell .seed-chip-active,
+.home-terminal-shell .npc-chip-active,
+.home-terminal-shell .arena-tab-button-active {
+  background:
+    linear-gradient(90deg, rgba(255, 77, 77, 0.18), rgba(77, 255, 136, 0.16), rgba(83, 167, 255, 0.18)),
+    #060606;
+  border-color: #ffffff;
+}
+
+.home-terminal-shell .text-input,
+.home-terminal-shell .text-area,
+.home-terminal-shell .provider-button,
+.home-terminal-shell .ghost-button,
+.home-terminal-shell .primary-button,
+.home-terminal-shell .class-card,
+.home-terminal-shell .runtime-panel,
+.home-terminal-shell .enemy-card,
+.home-terminal-shell .rules-card,
+.home-terminal-shell .npc-chat-shell,
+.home-terminal-shell .mini-card,
+.home-terminal-shell .inventory-card,
+.home-terminal-shell .history-card,
+.home-terminal-shell .stat-grid div,
+.home-terminal-shell .info-grid div,
+.home-terminal-shell .ability-grid div {
+  border-radius: 0;
+  border-color: rgba(255, 255, 255, 0.88);
+  background: #020202;
+  color: #ffffff;
+  box-shadow: none;
+}
+
+.home-terminal-shell .text-input,
+.home-terminal-shell .text-area {
+  font-size: 1.25rem;
+}
+
+.home-terminal-shell .text-input:focus,
+.home-terminal-shell .text-area:focus {
+  border-color: #ffffff;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.35),
+    0 0 20px rgba(255, 255, 255, 0.08);
+}
+
+.home-terminal-shell .ghost-button,
+.home-terminal-shell .provider-button,
+.home-terminal-shell .seed-chip {
+  background: #030303;
+  color: #ffffff;
+}
+
+.home-terminal-shell .primary-button {
+  background: #ffffff;
+  color: #000000;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.home-terminal-shell .field-label,
+.home-terminal-shell .eyebrow {
+  color: #ffffff;
+}
+
+.home-terminal-shell .spotlight-copy {
+  padding: 14px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.88);
+  background: #020202;
+  color: #ffffff;
+  font-size: clamp(1.45rem, 2.4vw, 2rem);
+  line-height: 1.2;
+  letter-spacing: 0.06em;
 }
 
 .status-ready,
