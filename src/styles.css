@@ -205,6 +205,10 @@ button {
   grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.95fr);
 }
 
+.setup-grid-wide {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .panel {
   padding: 18px;
 }
@@ -343,6 +347,7 @@ button {
 .npc-chat-shell,
 .mini-card,
 .inventory-card,
+.history-card,
 .stat-grid div,
 .info-grid div,
 .ability-grid div {
@@ -357,6 +362,31 @@ button {
 .mini-card,
 .npc-chat-shell {
   padding: 14px;
+}
+
+.status-card,
+.history-card {
+  padding: 14px;
+}
+
+.account-shell,
+.history-list,
+.compact-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.button-row .ghost-button {
+  width: auto;
+  flex: 1 1 120px;
 }
 
 .class-card,
@@ -642,6 +672,11 @@ button {
   margin-top: 10px;
 }
 
+.status-card p,
+.history-card p {
+  margin-bottom: 0;
+}
+
 .arena-art-strip .art-thumb,
 .art-thumb {
   width: calc(33.333% - 7px);
@@ -665,6 +700,7 @@ button {
 @media (max-width: 1180px) {
   .hero-panel,
   .setup-grid,
+  .setup-grid-wide,
   .arena-layout,
   .arena-surroundings-grid,
   .arena-actors-grid,

@@ -1,13 +1,26 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { DND_CLASSES } from "./data/dnd";
 import { STARTING_CONDITIONS, pickRandomStartingCondition } from "./data/startingConditions";
+import {
+  type AccountUser,
+  deleteCloudCampaign,
+  getCurrentAccountUser,
+  isSupabaseConfigured,
+  listCloudCampaignSaves,
+  saveCloudCampaign,
+  signInWithEmail,
+  signInWithGoogle,
+  signOutAccount,
+  signUpWithEmail,
+  subscribeToAccountChanges,
+} from "./lib/account";
 import {
   createInitialGameState,
   ensureEngine,
   runDungeonMasterTurn,
   runNpcTurn,
 } from "./lib/gameAgent";
-import { DEFAULT_MODEL_ID, TOOL_CALLING_MODELS } from "./lib/models";
+import { getDefaultModelId, getToolCallingModels } from "./lib/models";
 import { OPENROUTER_MODELS } from "./lib/openrouter";
 import { DEFAULT_OPENROUTER_MODEL } from "./lib/providerConfig";
 import {
@@ -17,8 +30,10 @@ import {
   storeEncryptedOpenRouterKey,
 } from "./lib/secureStorage";
 import type {
+  CloudCampaignSave,
   EngineStatus,
   GameState,
+  ModelOption,
   NpcChatMessage,
   ProviderConfig,
   ProviderKind,
@@ -28,7 +43,10 @@ import type {
 } from "./types";
 
 const STORAGE_KEY = "the-infinite-game/session";
+
 type GameTab = "journal" | "surroundings" | "inventory" | "npcs" | "player" | "quests";
+type AuthMode = "signin" | "signup";
+type AsyncStatus = "idle" | "loading" | "ready" | "error";
 
 function createStoryBeat(
   speaker: StorySpeaker,
@@ -61,12 +79,27 @@ function formatStoryTimestamp(timestamp: number): string {
   }).format(timestamp);
 }
 
+function formatCalendarTimestamp(timestamp: string): string {
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(timestamp));
+}
+
 function formatResourceMeter(current: number, max: number): string {
   if (max <= 0) {
     return "0%";
   }
 
   return `${Math.max(0, Math.min(100, (current / max) * 100))}%`;
+}
+
+function buildCampaignTitle(game: GameState): string {
+  const trimmedTheme = game.theme.trim();
+  const headline = trimmedTheme.length > 52 ? `${trimmedTheme.slice(0, 52)}...` : trimmedTheme;
+  return `${game.playerName} · ${headline} · Turn ${game.turnCount}`;
 }
 
 function isCompatibleSession(value: unknown): value is SavedSession {
@@ -86,13 +119,16 @@ function isCompatibleSession(value: unknown): value is SavedSession {
 }
 
 function App() {
+  const supabaseEnabled = isSupabaseConfigured();
   const [hasHydratedSession, setHasHydratedSession] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [playerName, setPlayerName] = useState("Traveler");
   const [randomSeed, setRandomSeed] = useState(pickRandomStartingCondition());
   const [customTheme, setCustomTheme] = useState("");
-  const [selectedProvider, setSelectedProvider] = useState<ProviderKind>("webllm");
-  const [selectedModelId, setSelectedModelId] = useState(DEFAULT_MODEL_ID);
+  const [selectedProvider, setSelectedProvider] = useState<ProviderKind>("openrouter");
+  const [toolCallingModels, setToolCallingModels] = useState<ModelOption[]>([]);
+  const [webllmCatalogStatus, setWebllmCatalogStatus] = useState<AsyncStatus>("idle");
+  const [selectedModelId, setSelectedModelId] = useState("");
   const [selectedOpenRouterModel, setSelectedOpenRouterModel] = useState(DEFAULT_OPENROUTER_MODEL);
   const [selectedClassId, setSelectedClassId] = useState(DND_CLASSES[0]?.id ?? "fighter");
   const [openRouterKeyInput, setOpenRouterKeyInput] = useState("");
@@ -108,6 +144,59 @@ function App() {
     phase: "idle",
     text: "Choose local WebLLM or OpenRouter before starting.",
   });
+  const [authMode, setAuthMode] = useState<AuthMode>("signup");
+  const [accountUser, setAccountUser] = useState<AccountUser | null>(null);
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authBusyLabel, setAuthBusyLabel] = useState("");
+  const [authMessage, setAuthMessage] = useState("");
+  const [cloudHistory, setCloudHistory] = useState<CloudCampaignSave[]>([]);
+  const [cloudHistoryBusy, setCloudHistoryBusy] = useState(false);
+  const [cloudSaveId, setCloudSaveId] = useState<string | undefined>(undefined);
+  const [cloudSyncLabel, setCloudSyncLabel] = useState("");
+  const [cloudError, setCloudError] = useState("");
+
+  const loadWebllmCatalog = useCallback(async () => {
+    if (webllmCatalogStatus === "loading" || webllmCatalogStatus === "ready") {
+      return;
+    }
+
+    setWebllmCatalogStatus("loading");
+    try {
+      const [models, defaultModelId] = await Promise.all([
+        getToolCallingModels(),
+        getDefaultModelId(),
+      ]);
+      setToolCallingModels(models);
+      setSelectedModelId((current) => current || defaultModelId || models[0]?.id || "");
+      setWebllmCatalogStatus("ready");
+    } catch (error) {
+      setWebllmCatalogStatus("error");
+      setErrorMessage(
+        error instanceof Error ? error.message : "Failed to load the WebLLM model catalog.",
+      );
+    }
+  }, [webllmCatalogStatus]);
+
+  const refreshCloudHistory = useCallback(async () => {
+    if (!supabaseEnabled || !accountUser) {
+      setCloudHistory([]);
+      return;
+    }
+
+    setCloudHistoryBusy(true);
+    setCloudError("");
+    try {
+      const saves = await listCloudCampaignSaves();
+      setCloudHistory(saves);
+    } catch (error) {
+      setCloudError(
+        error instanceof Error ? error.message : "Failed to load cloud campaign history.",
+      );
+    } finally {
+      setCloudHistoryBusy(false);
+    }
+  }, [accountUser, supabaseEnabled]);
 
   useEffect(() => {
     const media = window.matchMedia("(max-width: 820px)");
@@ -122,10 +211,70 @@ function App() {
   }, []);
 
   useEffect(() => {
+    if (selectedProvider === "webllm") {
+      void loadWebllmCatalog();
+    }
+  }, [loadWebllmCatalog, selectedProvider]);
+
+  useEffect(() => {
     if (isMobile && hasEncryptedOpenRouterKey()) {
       setSelectedProvider((current) => (current === "webllm" ? "openrouter" : current));
     }
   }, [isMobile]);
+
+  useEffect(() => {
+    if (!supabaseEnabled) {
+      return;
+    }
+
+    let active = true;
+
+    void getCurrentAccountUser()
+      .then((user) => {
+        if (!active) {
+          return;
+        }
+        setAccountUser(user);
+        if (user) {
+          setAuthMessage(
+            user.emailVerified
+              ? `Signed in as ${user.email}. Cloud history is active.`
+              : `Signed in as ${user.email}. Verify the email inbox to finish account confirmation.`,
+          );
+        }
+      })
+      .catch((error) => {
+        if (active) {
+          setCloudError(error instanceof Error ? error.message : "Failed to restore the account session.");
+        }
+      });
+
+    const unsubscribe = subscribeToAccountChanges((user) => {
+      setAccountUser(user);
+      if (!user) {
+        setCloudHistory([]);
+        setCloudSaveId(undefined);
+        setCloudSyncLabel("");
+        setAuthMessage("Signed out. Local save remains on this device.");
+        return;
+      }
+
+      setAuthMessage(
+        user.emailVerified
+          ? `Signed in as ${user.email}. Cloud history is active.`
+          : `Signed in as ${user.email}. Verify the email inbox to finish account confirmation.`,
+      );
+    });
+
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, [supabaseEnabled]);
+
+  useEffect(() => {
+    void refreshCloudHistory();
+  }, [refreshCloudHistory]);
 
   useEffect(() => {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -144,13 +293,17 @@ function App() {
 
       setGame(parsed.game);
       setSelectedNpcId(parsed.selectedNpcId);
-      setSelectedProvider(parsed.game.selectedProvider ?? "webllm");
-      setSelectedModelId(parsed.game.selectedProvider === "openrouter" ? DEFAULT_MODEL_ID : parsed.game.selectedModelId);
-      setSelectedOpenRouterModel(parsed.game.selectedProvider === "openrouter" ? parsed.game.selectedModelId : DEFAULT_OPENROUTER_MODEL);
+      setSelectedProvider(parsed.game.selectedProvider ?? "openrouter");
+      setSelectedModelId(parsed.game.selectedProvider === "webllm" ? parsed.game.selectedModelId : "");
+      setSelectedOpenRouterModel(
+        parsed.game.selectedProvider === "openrouter"
+          ? parsed.game.selectedModelId
+          : DEFAULT_OPENROUTER_MODEL,
+      );
       setSelectedClassId(parsed.game.player.classId);
       setEngineStatus({
         phase: "idle",
-        text: `Saved campaign found for ${parsed.game.playerName}. Resume with ${parsed.game.selectedProvider === "openrouter" ? parsed.game.selectedModelId : parsed.game.selectedModelId}.`,
+        text: `Saved campaign found for ${parsed.game.playerName}. Resume with ${parsed.game.selectedProvider === "openrouter" ? `OpenRouter / ${parsed.game.selectedModelId}` : `WebLLM / ${parsed.game.selectedModelId}`}.`,
       });
     } catch {
       localStorage.removeItem(STORAGE_KEY);
@@ -176,6 +329,40 @@ function App() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
   }, [game, hasHydratedSession, selectedNpcId]);
 
+  useEffect(() => {
+    if (!hasHydratedSession || !game || !supabaseEnabled || !accountUser) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setCloudSyncLabel(cloudSaveId ? "Syncing cloud history..." : "Creating cloud save...");
+      setCloudError("");
+      void saveCloudCampaign({
+        saveId: cloudSaveId,
+        title: buildCampaignTitle(game),
+        game,
+        selectedNpcId,
+      })
+        .then((saved) => {
+          setCloudSaveId(saved.id);
+          setCloudSyncLabel(`Cloud saved ${formatCalendarTimestamp(saved.updatedAt)}`);
+          setCloudHistory((current) => {
+            const next = [saved, ...current.filter((entry) => entry.id !== saved.id)];
+            return next.sort(
+              (left, right) =>
+                new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime(),
+            );
+          });
+        })
+        .catch((error) => {
+          setCloudError(error instanceof Error ? error.message : "Cloud sync failed.");
+          setCloudSyncLabel("");
+        });
+    }, 1200);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [accountUser, cloudSaveId, game, hasHydratedSession, selectedNpcId, supabaseEnabled]);
+
   async function buildProviderConfig(kind: ProviderKind): Promise<ProviderConfig> {
     if (kind === "openrouter") {
       const apiKey = await getDecryptedOpenRouterKey();
@@ -189,9 +376,14 @@ function App() {
       };
     }
 
+    const modelId = selectedModelId || (await getDefaultModelId());
+    if (!selectedModelId && modelId) {
+      setSelectedModelId(modelId);
+    }
+
     return {
       kind,
-      modelId: selectedModelId || DEFAULT_MODEL_ID,
+      modelId,
     };
   }
 
@@ -249,6 +441,111 @@ function App() {
     });
   }
 
+  async function handleAuthSubmit() {
+    if (!supabaseEnabled) {
+      setCloudError("Supabase auth is not configured in this deployment.");
+      return;
+    }
+
+    if (!authEmail.trim() || !authPassword.trim()) {
+      setCloudError("Enter both email and password.");
+      return;
+    }
+
+    setAuthBusyLabel(authMode === "signup" ? "Creating account..." : "Signing in...");
+    setCloudError("");
+    try {
+      if (authMode === "signup") {
+        const result = await signUpWithEmail(authEmail.trim(), authPassword);
+        setAccountUser(result.user);
+        setAuthMessage(
+          result.needsEmailVerification
+            ? `Verification email sent to ${authEmail.trim()}. Finish confirmation, then sign in.`
+            : `Account ready for ${authEmail.trim()}. Cloud history is active.`,
+        );
+      } else {
+        const user = await signInWithEmail(authEmail.trim(), authPassword);
+        setAccountUser(user);
+        setAuthMessage(`Signed in as ${authEmail.trim()}. Cloud history is active.`);
+      }
+      setAuthPassword("");
+    } catch (error) {
+      setCloudError(error instanceof Error ? error.message : "Authentication failed.");
+    } finally {
+      setAuthBusyLabel("");
+    }
+  }
+
+  async function handleGoogleLogin() {
+    if (!supabaseEnabled) {
+      setCloudError("Supabase auth is not configured in this deployment.");
+      return;
+    }
+
+    setAuthBusyLabel("Redirecting to Google...");
+    setCloudError("");
+    try {
+      await signInWithGoogle();
+    } catch (error) {
+      setCloudError(error instanceof Error ? error.message : "Google sign-in failed.");
+      setAuthBusyLabel("");
+    }
+  }
+
+  async function handleSignOut() {
+    setAuthBusyLabel("Signing out...");
+    setCloudError("");
+    try {
+      await signOutAccount();
+      setAccountUser(null);
+      setCloudHistory([]);
+      setCloudSaveId(undefined);
+      setCloudSyncLabel("");
+    } catch (error) {
+      setCloudError(error instanceof Error ? error.message : "Failed to sign out.");
+    } finally {
+      setAuthBusyLabel("");
+    }
+  }
+
+  async function handleLoadCloudSave(save: CloudCampaignSave) {
+    setGame(save.game);
+    setSelectedNpcId(save.selectedNpcId);
+    setSelectedProvider(save.game.selectedProvider);
+    setSelectedClassId(save.game.player.classId);
+    setSelectedModelId(save.game.selectedProvider === "webllm" ? save.game.selectedModelId : "");
+    setSelectedOpenRouterModel(
+      save.game.selectedProvider === "openrouter"
+        ? save.game.selectedModelId
+        : DEFAULT_OPENROUTER_MODEL,
+    );
+    setCloudSaveId(save.id);
+    setActiveTab("surroundings");
+    setEngineStatus({
+      phase: "idle",
+      text: `Loaded cloud campaign: ${save.title}`,
+    });
+    if (save.game.selectedProvider === "webllm") {
+      void loadWebllmCatalog();
+    }
+  }
+
+  async function handleDeleteCloudSave(saveId: string) {
+    setCloudHistoryBusy(true);
+    setCloudError("");
+    try {
+      await deleteCloudCampaign(saveId);
+      setCloudHistory((current) => current.filter((entry) => entry.id !== saveId));
+      if (cloudSaveId === saveId) {
+        setCloudSaveId(undefined);
+      }
+    } catch (error) {
+      setCloudError(error instanceof Error ? error.message : "Failed to delete the cloud save.");
+    } finally {
+      setCloudHistoryBusy(false);
+    }
+  }
+
   async function handleStartAdventure() {
     const startingCondition = customTheme.trim() || randomSeed;
     if (!startingCondition) {
@@ -277,7 +574,10 @@ function App() {
         story: [
           createStoryBeat("system", `Campaign seed: ${startingCondition}`),
           createStoryBeat("system", `Starting class: ${baseGame.player.className}`),
-          createStoryBeat("system", `Runtime provider: ${provider.kind === "openrouter" ? `OpenRouter / ${provider.modelId}` : `WebLLM / ${provider.modelId}`}`),
+          createStoryBeat(
+            "system",
+            `Runtime provider: ${provider.kind === "openrouter" ? `OpenRouter / ${provider.modelId}` : `WebLLM / ${provider.modelId}`}`,
+          ),
         ],
       };
 
@@ -300,6 +600,8 @@ function App() {
 
       setGame(nextGame);
       setSelectedNpcId(nextGame.npcs[0]?.id);
+      setCloudSaveId(undefined);
+      setCloudSyncLabel(accountUser ? "Cloud sync queued." : "");
       setActiveTab("surroundings");
       setActionInput("");
     } catch (error) {
@@ -385,10 +687,7 @@ function App() {
         ...stagedGame,
         npcChats: {
           ...stagedGame.npcChats,
-          [selectedNpcId]: [
-            ...updatedChat,
-            createNpcMessage("npc", reply),
-          ],
+          [selectedNpcId]: [...updatedChat, createNpcMessage("npc", reply)],
         },
       };
       setGame(nextGame);
@@ -405,6 +704,8 @@ function App() {
     localStorage.removeItem(STORAGE_KEY);
     setGame(null);
     setSelectedNpcId(undefined);
+    setCloudSaveId(undefined);
+    setCloudSyncLabel("");
     setActiveTab("surroundings");
     setActionInput("");
     setNpcInput("");
@@ -420,8 +721,12 @@ function App() {
   const activeNpcChat = activeNpc ? game?.npcChats[activeNpc.id] ?? [] : [];
   const usingCustomTheme = customTheme.trim().length > 0;
   const selectedClass = DND_CLASSES.find((entry) => entry.id === selectedClassId) ?? DND_CLASSES[0];
-  const startDisabled = Boolean(busyLabel) || (selectedProvider === "webllm" ? !selectedModelId : !openRouterKeyStored || !selectedOpenRouterModel.trim());
-  const latestSceneArt = game?.artGallery.slice().reverse().find((art) => art.focus === "scene")?.url ?? game?.latestArtUrl;
+  const startDisabled = Boolean(busyLabel) || (selectedProvider === "webllm"
+    ? webllmCatalogStatus === "loading" || !selectedModelId
+    : !openRouterKeyStored || !selectedOpenRouterModel.trim());
+  const latestSceneArt =
+    game?.artGallery.slice().reverse().find((art) => art.focus === "scene")?.url ??
+    game?.latestArtUrl;
   const gameTabs: Array<{ id: GameTab; label: string }> = [
     { id: "journal", label: "Journal" },
     { id: "surroundings", label: "Surroundings" },
@@ -444,18 +749,30 @@ function App() {
           </div>
           <div className="status-stack arena-status-stack">
             <div className={`status-pill status-${engineStatus.phase}`}>{engineStatus.text}</div>
-            {isMobile ? <div className="status-pill status-busy">Mobile device detected. OpenRouter is recommended for smoother play.</div> : null}
+            {isMobile ? (
+              <div className="status-pill status-busy">
+                Mobile device detected. OpenRouter is recommended for smoother play.
+              </div>
+            ) : null}
             {busyLabel ? <div className="status-pill status-busy">{busyLabel}</div> : null}
+            {authBusyLabel ? <div className="status-pill status-busy">{authBusyLabel}</div> : null}
+            {authMessage ? <div className="status-pill status-ready">{authMessage}</div> : null}
+            {cloudSyncLabel ? <div className="status-pill status-ready">{cloudSyncLabel}</div> : null}
+            {cloudError ? <div className="status-pill status-error">{cloudError}</div> : null}
             {errorMessage ? <div className="status-pill status-error">{errorMessage}</div> : null}
           </div>
         </header>
 
         {!game ? (
-          <section className="setup-grid">
+          <section className="setup-grid setup-grid-wide">
             <article className="panel spotlight-panel">
               <div className="panel-header">
                 <p className="eyebrow">1. Theme Seed</p>
-                <button type="button" className="ghost-button" onClick={() => setRandomSeed(pickRandomStartingCondition())}>
+                <button
+                  type="button"
+                  className="ghost-button"
+                  onClick={() => setRandomSeed(pickRandomStartingCondition())}
+                >
                   Reroll Seed
                 </button>
               </div>
@@ -463,7 +780,9 @@ function App() {
               <p className="subtle-copy">
                 Random mode draws from {STARTING_CONDITIONS.length} opening conditions. A custom theme overrides the seed while the DM keeps one structured simulation layer behind the story.
               </p>
-              <label className="field-label" htmlFor="custom-theme">Custom theme or opening condition</label>
+              <label className="field-label" htmlFor="custom-theme">
+                Custom theme or opening condition
+              </label>
               <textarea
                 id="custom-theme"
                 className="text-area"
@@ -480,34 +799,63 @@ function App() {
 
               <label className="field-label">Runtime provider</label>
               <div className="provider-toggle">
-                <button type="button" className={`provider-button ${selectedProvider === "webllm" ? "provider-button-active" : ""}`} onClick={() => setSelectedProvider("webllm")}>
+                <button
+                  type="button"
+                  className={`provider-button ${selectedProvider === "webllm" ? "provider-button-active" : ""}`}
+                  onClick={() => setSelectedProvider("webllm")}
+                >
                   Local WebLLM
                 </button>
-                <button type="button" className={`provider-button ${selectedProvider === "openrouter" ? "provider-button-active" : ""}`} onClick={() => setSelectedProvider("openrouter")}>
+                <button
+                  type="button"
+                  className={`provider-button ${selectedProvider === "openrouter" ? "provider-button-active" : ""}`}
+                  onClick={() => setSelectedProvider("openrouter")}
+                >
                   OpenRouter
                 </button>
               </div>
 
               {selectedProvider === "webllm" ? (
                 <>
-                  <label className="field-label" htmlFor="model-id">WebLLM model</label>
-                  <select
-                    id="model-id"
-                    className="text-input"
-                    value={selectedModelId}
-                    onChange={(event) => setSelectedModelId(event.target.value)}
-                  >
-                    {TOOL_CALLING_MODELS.map((model) => (
-                      <option key={model.id} value={model.id}>
-                        {model.label}
-                      </option>
-                    ))}
-                  </select>
-                  <p className="subtle-copy">Local mode keeps the model in-browser and uses only WebLLM tool-calling-capable models.</p>
+                  <label className="field-label" htmlFor="model-id">
+                    WebLLM model
+                  </label>
+                  {webllmCatalogStatus === "ready" ? (
+                    <select
+                      id="model-id"
+                      className="text-input"
+                      value={selectedModelId}
+                      onChange={(event) => setSelectedModelId(event.target.value)}
+                    >
+                      {toolCallingModels.map((model) => (
+                        <option key={model.id} value={model.id}>
+                          {model.label}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <div className="mini-card status-card">
+                      <strong>
+                        {webllmCatalogStatus === "loading"
+                          ? "Loading local model catalog..."
+                          : "WebLLM stays unloaded until you choose local play."}
+                      </strong>
+                      <p>
+                        {webllmCatalogStatus === "error"
+                          ? "The local model catalog failed to load. Switch providers or try again by selecting Local WebLLM once more."
+                          : "The browser only fetches the WebLLM model registry after you opt into the local provider."}
+                      </p>
+                    </div>
+                  )}
+                  <p className="subtle-copy">
+                    Local mode keeps the model in-browser and now defers the WebLLM bundle until you explicitly choose this provider.
+                  </p>
                 </>
               ) : (
                 <>
-                  <label className="field-label" htmlFor="openrouter-model">OpenRouter model</label>
+                  <label className="field-label" htmlFor="openrouter-model">
+                    OpenRouter model
+                  </label>
                   <input
                     id="openrouter-model"
                     className="text-input"
@@ -521,7 +869,9 @@ function App() {
                       <option key={model} value={model} />
                     ))}
                   </datalist>
-                  <label className="field-label" htmlFor="openrouter-key">OpenRouter API key</label>
+                  <label className="field-label" htmlFor="openrouter-key">
+                    OpenRouter API key
+                  </label>
                   <input
                     id="openrouter-key"
                     className="text-input"
@@ -534,15 +884,24 @@ function App() {
                     <button type="button" className="ghost-button" onClick={handleStoreOpenRouterKey}>
                       Save Encrypted Key
                     </button>
-                    <button type="button" className="ghost-button" onClick={handleClearOpenRouterKey} disabled={!openRouterKeyStored}>
+                    <button
+                      type="button"
+                      className="ghost-button"
+                      onClick={handleClearOpenRouterKey}
+                      disabled={!openRouterKeyStored}
+                    >
                       Clear Stored Key
                     </button>
                   </div>
-                  <p className="subtle-copy">The key is encrypted at rest in the browser using Web Crypto plus IndexedDB-backed key material. For stronger production security, a server-side Vercel env key is still preferable.</p>
+                  <p className="subtle-copy">
+                    The key is encrypted at rest in the browser using Web Crypto plus IndexedDB-backed key material. For stronger production security, a server-side Vercel env key is still preferable.
+                  </p>
                 </>
               )}
 
-              <label className="field-label" htmlFor="player-name">Player name</label>
+              <label className="field-label" htmlFor="player-name">
+                Player name
+              </label>
               <input
                 id="player-name"
                 className="text-input"
@@ -551,7 +910,9 @@ function App() {
                 maxLength={40}
               />
 
-              <label className="field-label" htmlFor="class-id">Starting class</label>
+              <label className="field-label" htmlFor="class-id">
+                Starting class
+              </label>
               <select
                 id="class-id"
                 className="text-input"
@@ -571,7 +932,9 @@ function App() {
                   <p>{selectedClass.role}</p>
                   <div className="tag-row">
                     {selectedClass.primaryAbilities.map((ability) => (
-                      <span key={ability} className="meta-chip">{ability}</span>
+                      <span key={ability} className="meta-chip">
+                        {ability}
+                      </span>
                     ))}
                     <span className="meta-chip">d{selectedClass.hitDie}</span>
                     <span className="meta-chip">{selectedClass.spellcasting}</span>
@@ -579,7 +942,12 @@ function App() {
                 </div>
               ) : null}
 
-              <button type="button" className="primary-button" onClick={handleStartAdventure} disabled={startDisabled}>
+              <button
+                type="button"
+                className="primary-button"
+                onClick={handleStartAdventure}
+                disabled={startDisabled}
+              >
                 Start Adventure
               </button>
               <div className="seed-list">
@@ -595,6 +963,121 @@ function App() {
                 ))}
               </div>
             </article>
+
+            <article className="panel form-panel">
+              <div className="panel-header">
+                <p className="eyebrow">3. Account + History</p>
+                {supabaseEnabled && accountUser ? (
+                  <button type="button" className="ghost-button" onClick={() => void refreshCloudHistory()}>
+                    Refresh History
+                  </button>
+                ) : null}
+              </div>
+
+              {!supabaseEnabled ? (
+                <div className="mini-card status-card">
+                  <strong>Cloud auth is disabled in this deployment.</strong>
+                  <p>
+                    Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to enable verified email sign-up, Google OAuth, and shared campaign history.
+                  </p>
+                </div>
+              ) : accountUser ? (
+                <div className="account-shell">
+                  <div className="mini-card status-card">
+                    <strong>{accountUser.displayName}</strong>
+                    <p>{accountUser.email}</p>
+                    <div className="tag-row compact-tags">
+                      <span className="meta-chip">{accountUser.provider}</span>
+                      <span className="meta-chip">
+                        {accountUser.emailVerified ? "email verified" : "verification pending"}
+                      </span>
+                    </div>
+                    <button type="button" className="ghost-button" onClick={handleSignOut}>
+                      Sign Out
+                    </button>
+                  </div>
+
+                  <div className="history-list">
+                    {cloudHistoryBusy ? <p className="subtle-copy">Loading cloud history...</p> : null}
+                    {!cloudHistoryBusy && cloudHistory.length === 0 ? (
+                      <div className="mini-card status-card">
+                        <strong>No cloud campaigns yet.</strong>
+                        <p>Start or resume a campaign and it will sync automatically to this account.</p>
+                      </div>
+                    ) : null}
+                    {cloudHistory.map((save) => (
+                      <article key={save.id} className="mini-card history-card">
+                        <div className="mini-card-header">
+                          <strong>{save.title}</strong>
+                          <span className="meta-chip">{formatCalendarTimestamp(save.updatedAt)}</span>
+                        </div>
+                        <p>
+                          {save.game.environment.location} · {save.game.selectedProvider === "openrouter" ? "OpenRouter" : "WebLLM"} · Turn {save.game.turnCount}
+                        </p>
+                        <div className="button-row">
+                          <button type="button" className="ghost-button" onClick={() => void handleLoadCloudSave(save)}>
+                            Load
+                          </button>
+                          <button type="button" className="ghost-button" onClick={() => void handleDeleteCloudSave(save.id)}>
+                            Delete
+                          </button>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="account-shell">
+                  <div className="provider-toggle auth-toggle">
+                    <button
+                      type="button"
+                      className={`provider-button ${authMode === "signup" ? "provider-button-active" : ""}`}
+                      onClick={() => setAuthMode("signup")}
+                    >
+                      Create Account
+                    </button>
+                    <button
+                      type="button"
+                      className={`provider-button ${authMode === "signin" ? "provider-button-active" : ""}`}
+                      onClick={() => setAuthMode("signin")}
+                    >
+                      Sign In
+                    </button>
+                  </div>
+                  <label className="field-label" htmlFor="auth-email">
+                    Email
+                  </label>
+                  <input
+                    id="auth-email"
+                    className="text-input"
+                    type="email"
+                    value={authEmail}
+                    onChange={(event) => setAuthEmail(event.target.value)}
+                    placeholder="you@example.com"
+                  />
+                  <label className="field-label" htmlFor="auth-password">
+                    Password
+                  </label>
+                  <input
+                    id="auth-password"
+                    className="text-input"
+                    type="password"
+                    value={authPassword}
+                    onChange={(event) => setAuthPassword(event.target.value)}
+                    placeholder="Use a strong password"
+                  />
+                  <button type="button" className="primary-button" onClick={handleAuthSubmit}>
+                    {authMode === "signup" ? "Create Verified Account" : "Sign In"}
+                  </button>
+                  <button type="button" className="ghost-button" onClick={handleGoogleLogin}>
+                    Continue With Google
+                  </button>
+                  <p className="subtle-copy">
+                    Email sign-up sends a verification link through Supabase Auth. Google OAuth uses the same account system and unlocks synced campaign history.
+                  </p>
+                </div>
+              )}
+            </article>
           </section>
         ) : (
           <section className="arena-layout">
@@ -607,7 +1090,9 @@ function App() {
                     {game.environment.location} · {game.environment.atmosphere} · {game.player.className} · {game.selectedProvider === "openrouter" ? `OpenRouter ${game.selectedModelId}` : `WebLLM ${game.selectedModelId}`} · Turn {game.turnCount}
                   </p>
                 </div>
-                <button type="button" className="ghost-button" onClick={handleReset}>Reset Campaign</button>
+                <button type="button" className="ghost-button" onClick={handleReset}>
+                  Reset Campaign
+                </button>
               </div>
 
               <div className="panel arena-tab-bar">
@@ -634,15 +1119,25 @@ function App() {
                       {game.story.map((beat) => (
                         <article key={beat.id} className={`story-card story-${beat.speaker}`}>
                           <div className="story-meta">
-                            <span>{beat.speaker === "dm" ? "Dungeon Master" : beat.speaker === "player" ? game.playerName : "System"}</span>
+                            <span>
+                              {beat.speaker === "dm"
+                                ? "Dungeon Master"
+                                : beat.speaker === "player"
+                                  ? game.playerName
+                                  : "System"}
+                            </span>
                             <span>{formatStoryTimestamp(beat.createdAt)}</span>
                           </div>
                           <p>{beat.content}</p>
-                          {beat.imageUrl ? <img className="story-image" src={beat.imageUrl} alt="Generated scene art" /> : null}
+                          {beat.imageUrl ? (
+                            <img className="story-image" src={beat.imageUrl} alt="Generated scene art" />
+                          ) : null}
                           {beat.toolEvents.length > 0 ? (
                             <div className="tool-event-row">
                               {beat.toolEvents.map((toolEvent) => (
-                                <span key={toolEvent.id} className="tool-event-chip">{toolEvent.summary}</span>
+                                <span key={toolEvent.id} className="tool-event-chip">
+                                  {toolEvent.summary}
+                                </span>
                               ))}
                             </div>
                           ) : null}
@@ -660,9 +1155,15 @@ function App() {
                     </div>
                     <div className="arena-scene-frame">
                       {latestSceneArt ? (
-                        <img className="hero-art arena-scene-image" src={latestSceneArt} alt={`Surroundings near ${game.environment.location}`} />
+                        <img
+                          className="hero-art arena-scene-image"
+                          src={latestSceneArt}
+                          alt={`Surroundings near ${game.environment.location}`}
+                        />
                       ) : (
-                        <div className="art-placeholder arena-placeholder">The dungeon master has not painted the current surroundings yet.</div>
+                        <div className="art-placeholder arena-placeholder">
+                          The dungeon master has not painted the current surroundings yet.
+                        </div>
                       )}
                     </div>
                     <div className="arena-surroundings-grid">
@@ -681,18 +1182,33 @@ function App() {
                       <article className="mini-card arena-panel-card">
                         <strong>Hazards and exits</strong>
                         <div className="tag-row compact-tags">
-                          {(game.environment.hazards.length > 0 ? game.environment.hazards : ["no active hazards"]).map((hazard) => (
-                            <span key={hazard} className="meta-chip">{hazard}</span>
+                          {(game.environment.hazards.length > 0
+                            ? game.environment.hazards
+                            : ["no active hazards"]
+                          ).map((hazard) => (
+                            <span key={hazard} className="meta-chip">
+                              {hazard}
+                            </span>
                           ))}
                         </div>
                         <div className="tag-row compact-tags">
-                          {(game.environment.exits.length > 0 ? game.environment.exits : ["no obvious exits"]).map((exit) => (
-                            <span key={exit} className="meta-chip">{exit}</span>
+                          {(game.environment.exits.length > 0
+                            ? game.environment.exits
+                            : ["no obvious exits"]
+                          ).map((exit) => (
+                            <span key={exit} className="meta-chip">
+                              {exit}
+                            </span>
                           ))}
                         </div>
                         <div className="tag-row compact-tags">
-                          {(game.environment.factions.length > 0 ? game.environment.factions : ["no known factions"]).map((faction) => (
-                            <span key={faction} className="meta-chip">{faction}</span>
+                          {(game.environment.factions.length > 0
+                            ? game.environment.factions
+                            : ["no known factions"]
+                          ).map((faction) => (
+                            <span key={faction} className="meta-chip">
+                              {faction}
+                            </span>
                           ))}
                         </div>
                       </article>
@@ -724,7 +1240,11 @@ function App() {
                                 <span className="meta-chip">Slot {item.slot}</span>
                                 <span className="meta-chip">Weight {item.weight}</span>
                                 <span className="meta-chip">Value {item.value}</span>
-                                {item.tags.map((tag) => <span key={tag} className="meta-chip">{tag}</span>)}
+                                {item.tags.map((tag) => (
+                                  <span key={tag} className="meta-chip">
+                                    {tag}
+                                  </span>
+                                ))}
                               </div>
                             </div>
                           </article>
@@ -738,7 +1258,9 @@ function App() {
                   <>
                     <div className="panel-header">
                       <p className="eyebrow">NPCs and Enemies</p>
-                      <span className="meta-chip">{game.npcs.length} contacts · {game.enemies.length} foes</span>
+                      <span className="meta-chip">
+                        {game.npcs.length} contacts · {game.enemies.length} foes
+                      </span>
                     </div>
                     <div className="arena-actors-grid">
                       <section className="arena-actor-column">
@@ -787,12 +1309,19 @@ function App() {
                               onChange={(event) => setNpcInput(event.target.value)}
                               disabled={Boolean(busyLabel)}
                             />
-                            <button type="button" className="primary-button" onClick={handleNpcSend} disabled={Boolean(busyLabel) || !npcInput.trim()}>
+                            <button
+                              type="button"
+                              className="primary-button"
+                              onClick={handleNpcSend}
+                              disabled={Boolean(busyLabel) || !npcInput.trim()}
+                            >
                               Send Message
                             </button>
                           </div>
                         ) : (
-                          <div className="art-placeholder arena-placeholder">When the DM introduces someone important, their dedicated chat appears here.</div>
+                          <div className="art-placeholder arena-placeholder">
+                            When the DM introduces someone important, their dedicated chat appears here.
+                          </div>
                         )}
                       </section>
 
@@ -813,14 +1342,22 @@ function App() {
                                     <strong>{enemy.name}</strong>
                                     <span className="meta-chip">Lv {enemy.level}</span>
                                   </div>
-                                  <p>{enemy.archetype} · {enemy.disposition}</p>
+                                  <p>
+                                    {enemy.archetype} · {enemy.disposition}
+                                  </p>
                                   <div className="tag-row compact-tags">
-                                    <span className="meta-chip">HP {enemy.stats.health}/{enemy.stats.maxHealth}</span>
+                                    <span className="meta-chip">
+                                      HP {enemy.stats.health}/{enemy.stats.maxHealth}
+                                    </span>
                                     <span className="meta-chip">AC {enemy.stats.armorClass}</span>
                                     <span className="meta-chip">ATK {enemy.stats.attack}</span>
                                     <span className="meta-chip">MAG {enemy.stats.magic}</span>
                                     <span className="meta-chip">THR {enemy.stats.threat}</span>
-                                    {enemy.tags.map((tag) => <span key={tag} className="meta-chip">{tag}</span>)}
+                                    {enemy.tags.map((tag) => (
+                                      <span key={tag} className="meta-chip">
+                                        {tag}
+                                      </span>
+                                    ))}
                                   </div>
                                 </div>
                               </article>
@@ -843,16 +1380,43 @@ function App() {
                         <strong>{game.playerName}</strong>
                         <p>{game.player.background || game.player.className}</p>
                         <div className="stat-grid">
-                          <div><span>Health</span><strong>{game.player.resources.health}/{game.player.resources.maxHealth}</strong></div>
-                          <div><span>Mana</span><strong>{game.player.resources.mana}/{game.player.resources.maxMana}</strong></div>
-                          <div><span>Stamina</span><strong>{game.player.resources.stamina}/{game.player.resources.maxStamina}</strong></div>
-                          <div><span>Armor</span><strong>{game.player.resources.armorClass}</strong></div>
-                          <div><span>Gold</span><strong>{game.player.resources.gold}</strong></div>
-                          <div><span>Level</span><strong>{game.player.level}</strong></div>
+                          <div>
+                            <span>Health</span>
+                            <strong>
+                              {game.player.resources.health}/{game.player.resources.maxHealth}
+                            </strong>
+                          </div>
+                          <div>
+                            <span>Mana</span>
+                            <strong>
+                              {game.player.resources.mana}/{game.player.resources.maxMana}
+                            </strong>
+                          </div>
+                          <div>
+                            <span>Stamina</span>
+                            <strong>
+                              {game.player.resources.stamina}/{game.player.resources.maxStamina}
+                            </strong>
+                          </div>
+                          <div>
+                            <span>Armor</span>
+                            <strong>{game.player.resources.armorClass}</strong>
+                          </div>
+                          <div>
+                            <span>Gold</span>
+                            <strong>{game.player.resources.gold}</strong>
+                          </div>
+                          <div>
+                            <span>Level</span>
+                            <strong>{game.player.level}</strong>
+                          </div>
                         </div>
                         <div className="ability-grid">
                           {Object.entries(game.player.abilityScores).map(([ability, value]) => (
-                            <div key={ability}><span>{ability.slice(0, 3).toUpperCase()}</span><strong>{value}</strong></div>
+                            <div key={ability}>
+                              <span>{ability.slice(0, 3).toUpperCase()}</span>
+                              <strong>{value}</strong>
+                            </div>
                           ))}
                         </div>
                       </article>
@@ -895,7 +1459,9 @@ function App() {
                     <div className="arena-quests-grid">
                       <section className="stack-list arena-scroll-region">
                         {game.quests.length === 0 ? (
-                          <div className="art-placeholder arena-placeholder">The DM has not assigned a quest yet.</div>
+                          <div className="art-placeholder arena-placeholder">
+                            The DM has not assigned a quest yet.
+                          </div>
                         ) : (
                           game.quests.map((quest) => (
                             <article key={quest.id} className="mini-card arena-panel-card">
@@ -905,7 +1471,9 @@ function App() {
                               </div>
                               <p>{quest.summary}</p>
                               <ul className="plain-list">
-                                {quest.steps.map((step) => <li key={step}>{step}</li>)}
+                                {quest.steps.map((step) => (
+                                  <li key={step}>{step}</li>
+                                ))}
                               </ul>
                             </article>
                           ))
@@ -937,7 +1505,9 @@ function App() {
               </div>
 
               <div className="panel composer-panel arena-command-panel">
-                <label className="field-label" htmlFor="story-action">What do you do?</label>
+                <label className="field-label" htmlFor="story-action">
+                  What do you do?
+                </label>
                 <textarea
                   id="story-action"
                   className="text-area"
@@ -946,7 +1516,12 @@ function App() {
                   onChange={(event) => setActionInput(event.target.value)}
                   disabled={Boolean(busyLabel)}
                 />
-                <button type="button" className="primary-button" onClick={handleStoryAction} disabled={Boolean(busyLabel) || !actionInput.trim()}>
+                <button
+                  type="button"
+                  className="primary-button"
+                  onClick={handleStoryAction}
+                  disabled={Boolean(busyLabel) || !actionInput.trim()}
+                >
                   Send Action
                 </button>
               </div>
@@ -960,9 +1535,55 @@ function App() {
                 </div>
                 <p className="subtle-copy">{game.selectedModelId}</p>
                 {game.selectedProvider === "openrouter" ? (
-                  <p className="subtle-copy">OpenRouter mode is active. The user key remains encrypted at rest on this device and is decrypted only for requests.</p>
+                  <p className="subtle-copy">
+                    OpenRouter mode is active. The user key remains encrypted at rest on this device and is decrypted only for requests.
+                  </p>
                 ) : (
-                  <p className="subtle-copy">WebLLM mode is active. Local inference depends on WebGPU support and available device memory.</p>
+                  <p className="subtle-copy">
+                    WebLLM mode is active. Local inference depends on WebGPU support and available device memory.
+                  </p>
+                )}
+              </div>
+
+              <div className="panel arena-side-panel">
+                <div className="panel-header">
+                  <p className="eyebrow">Cloud History</p>
+                  <span className="meta-chip">{accountUser ? cloudHistory.length : 0}</span>
+                </div>
+                {!supabaseEnabled ? (
+                  <p className="subtle-copy">
+                    Cloud auth is not configured in this deployment. Add Supabase env vars to enable verified accounts and synced history.
+                  </p>
+                ) : accountUser ? (
+                  <>
+                    <p className="subtle-copy">
+                      {accountUser.emailVerified
+                        ? `Signed in as ${accountUser.email}.`
+                        : `Signed in as ${accountUser.email}. Email verification is still pending.`}
+                    </p>
+                    <div className="stack-list compact-stack">
+                      {cloudHistory.slice(0, 4).map((save) => (
+                        <article key={save.id} className="mini-card history-card">
+                          <div className="mini-card-header">
+                            <strong>{save.title}</strong>
+                            <span className="meta-chip">{formatCalendarTimestamp(save.updatedAt)}</span>
+                          </div>
+                          <div className="button-row">
+                            <button type="button" className="ghost-button" onClick={() => void handleLoadCloudSave(save)}>
+                              Load
+                            </button>
+                            <button type="button" className="ghost-button" onClick={() => void handleDeleteCloudSave(save.id)}>
+                              Delete
+                            </button>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <p className="subtle-copy">
+                    Sign in from the setup screen to sync this campaign, restore it on another device, and use verified email or Google OAuth.
+                  </p>
                 )}
               </div>
 
@@ -973,16 +1594,37 @@ function App() {
                 </div>
                 <div className="meter-list">
                   <div>
-                    <div className="meter-row"><span>Health</span><strong>{game.player.resources.health}/{game.player.resources.maxHealth}</strong></div>
-                    <div className="meter-track"><span style={{ width: formatResourceMeter(game.player.resources.health, game.player.resources.maxHealth) }} /></div>
+                    <div className="meter-row">
+                      <span>Health</span>
+                      <strong>
+                        {game.player.resources.health}/{game.player.resources.maxHealth}
+                      </strong>
+                    </div>
+                    <div className="meter-track">
+                      <span style={{ width: formatResourceMeter(game.player.resources.health, game.player.resources.maxHealth) }} />
+                    </div>
                   </div>
                   <div>
-                    <div className="meter-row"><span>Mana</span><strong>{game.player.resources.mana}/{game.player.resources.maxMana}</strong></div>
-                    <div className="meter-track"><span style={{ width: formatResourceMeter(game.player.resources.mana, game.player.resources.maxMana) }} /></div>
+                    <div className="meter-row">
+                      <span>Mana</span>
+                      <strong>
+                        {game.player.resources.mana}/{game.player.resources.maxMana}
+                      </strong>
+                    </div>
+                    <div className="meter-track">
+                      <span style={{ width: formatResourceMeter(game.player.resources.mana, game.player.resources.maxMana) }} />
+                    </div>
                   </div>
                   <div>
-                    <div className="meter-row"><span>Stamina</span><strong>{game.player.resources.stamina}/{game.player.resources.maxStamina}</strong></div>
-                    <div className="meter-track"><span style={{ width: formatResourceMeter(game.player.resources.stamina, game.player.resources.maxStamina) }} /></div>
+                    <div className="meter-row">
+                      <span>Stamina</span>
+                      <strong>
+                        {game.player.resources.stamina}/{game.player.resources.maxStamina}
+                      </strong>
+                    </div>
+                    <div className="meter-track">
+                      <span style={{ width: formatResourceMeter(game.player.resources.stamina, game.player.resources.maxStamina) }} />
+                    </div>
                   </div>
                 </div>
               </div>
@@ -995,8 +1637,16 @@ function App() {
                 <strong>{game.environment.location}</strong>
                 <p className="subtle-copy">{game.environment.sceneSummary}</p>
                 <div className="tag-row">
-                  {game.environment.hazards.map((hazard) => <span key={hazard} className="meta-chip">{hazard}</span>)}
-                  {game.environment.factions.map((faction) => <span key={faction} className="meta-chip">{faction}</span>)}
+                  {game.environment.hazards.map((hazard) => (
+                    <span key={hazard} className="meta-chip">
+                      {hazard}
+                    </span>
+                  ))}
+                  {game.environment.factions.map((faction) => (
+                    <span key={faction} className="meta-chip">
+                      {faction}
+                    </span>
+                  ))}
                 </div>
               </div>
 
@@ -1006,16 +1656,42 @@ function App() {
                   <span className="meta-chip">{game.player.className}</span>
                 </div>
                 <div className="stat-grid">
-                  <div><span>Luck</span><strong>{game.player.resources.luck}</strong></div>
-                  <div><span>Renown</span><strong>{game.player.resources.renown}</strong></div>
-                  <div><span>Armor</span><strong>{game.player.resources.armorClass}</strong></div>
-                  <div><span>Gold</span><strong>{game.player.resources.gold}</strong></div>
-                  <div><span>Level</span><strong>{game.player.level}</strong></div>
-                  <div><span>XP</span><strong>{game.player.xp}</strong></div>
+                  <div>
+                    <span>Luck</span>
+                    <strong>{game.player.resources.luck}</strong>
+                  </div>
+                  <div>
+                    <span>Renown</span>
+                    <strong>{game.player.resources.renown}</strong>
+                  </div>
+                  <div>
+                    <span>Armor</span>
+                    <strong>{game.player.resources.armorClass}</strong>
+                  </div>
+                  <div>
+                    <span>Gold</span>
+                    <strong>{game.player.resources.gold}</strong>
+                  </div>
+                  <div>
+                    <span>Level</span>
+                    <strong>{game.player.level}</strong>
+                  </div>
+                  <div>
+                    <span>XP</span>
+                    <strong>{game.player.xp}</strong>
+                  </div>
                 </div>
                 <div className="tag-row">
-                  {game.player.classFeatures.map((feature) => <span key={feature} className="meta-chip">{feature}</span>)}
-                  {game.player.customTraits.map((trait) => <span key={trait} className="meta-chip">{trait}</span>)}
+                  {game.player.classFeatures.map((feature) => (
+                    <span key={feature} className="meta-chip">
+                      {feature}
+                    </span>
+                  ))}
+                  {game.player.customTraits.map((trait) => (
+                    <span key={trait} className="meta-chip">
+                      {trait}
+                    </span>
+                  ))}
                 </div>
               </div>
 
@@ -1031,7 +1707,9 @@ function App() {
                     ))}
                   </div>
                 ) : (
-                  <div className="art-placeholder arena-placeholder">Scene, enemy, portrait, and item art appears here as the DM generates it.</div>
+                  <div className="art-placeholder arena-placeholder">
+                    Scene, enemy, portrait, and item art appears here as the DM generates it.
+                  </div>
                 )}
               </div>
             </aside>

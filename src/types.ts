@@ -245,6 +245,15 @@ export interface SavedSession {
   selectedNpcId?: string;
 }
 
+export interface CloudCampaignSave {
+  id: string;
+  title: string;
+  game: GameState;
+  selectedNpcId?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ModelOption {
   id: string;
   label: string;

@@ -1,13 +1,12 @@
-import {
-  CreateWebWorkerMLCEngine,
-  type ChatCompletionMessageParam,
-  type ChatCompletionMessageToolCall,
-  type ChatCompletionTool,
-  type InitProgressReport,
-  type MLCEngineInterface,
+import type {
+  ChatCompletionMessageParam,
+  ChatCompletionMessageToolCall,
+  ChatCompletionTool,
+  InitProgressReport,
+  MLCEngineInterface,
 } from "@mlc-ai/web-llm";
 import { buildGeneratedArtUrl, buildItemIconUrl } from "./assets";
-import { TOOL_CALLING_APP_CONFIG } from "./models";
+import { getToolCallingAppConfig } from "./models";
 import { createOpenRouterChatCompletion } from "./openrouter";
 import {
   DEFAULT_CLASS_ID,
@@ -852,8 +851,12 @@ export async function ensureEngine(
   activeWorker = new Worker(new URL("../workers/webllm.worker.ts", import.meta.url), {
     type: "module",
   });
+  const [{ CreateWebWorkerMLCEngine }, appConfig] = await Promise.all([
+    import("@mlc-ai/web-llm"),
+    getToolCallingAppConfig(),
+  ]);
   engine = await CreateWebWorkerMLCEngine(activeWorker, modelId, {
-    appConfig: TOOL_CALLING_APP_CONFIG,
+    appConfig,
     initProgressCallback: onProgress,
     logLevel: "INFO",
   });

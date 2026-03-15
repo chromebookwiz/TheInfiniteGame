@@ -5,7 +5,9 @@ A browser-first infinite choose-your-own-adventure built with React, Vite, and W
 ## What it does
 
 - Uses WebLLM in a Web Worker for the dungeon master and NPC dialogue.
+- Defers WebLLM catalog and engine loading until the local provider is explicitly selected.
 - Adds an optional OpenRouter runtime for mobile or lower-powered devices.
+- Adds Supabase-backed accounts with email verification or Google OAuth plus cloud-synced campaign history.
 - Restricts the model picker to WebLLM models exported as tool-calling-capable.
 - Starts from either one of 24 curated opening conditions or a custom user-written theme.
 - Gives the dungeon master a broader structured tool surface for environment state, memory, ruleset mutation, player stats, class changes, spells, inventory, quests, NPCs, enemies, and art generation.
@@ -13,6 +15,22 @@ A browser-first infinite choose-your-own-adventure built with React, Vite, and W
 - Tracks inventory items with generated SVG icons plus rarity, slot, tags, value, modifiers, and custom attributes.
 - Tracks active enemies with generated portraits and combat-facing stats.
 - Maintains a memory ledger and a mutable ruleset summary so the dungeon master has durable context.
+
+## Accounts and history
+
+- Email/password accounts are handled through Supabase Auth and can require email confirmation.
+- Google OAuth is supported through the same Supabase project.
+- Campaign history is stored in Supabase and automatically synced for signed-in users.
+- Local browser save-state still works even when Supabase is not configured.
+
+Create the table and policies in your Supabase project with [supabase/schema.sql](supabase/schema.sql).
+
+Required Vite environment variables:
+
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_ANON_KEY`
+
+For Google OAuth, add your Vercel production URL and local dev URL to the Supabase Auth redirect list, then enable the Google provider in the Supabase dashboard.
 
 ## Image generation
 
@@ -44,6 +62,7 @@ npm run dev
 
 ```bash
 npm run build
+npm run lint
 ```
 
 ## Free hosting
@@ -62,6 +81,14 @@ Then import the repository into Vercel, or run `vercel` locally if you use their
 Recommended Vercel environment setup:
 
 - `VITE_IMAGE_API_BASE` if you want a different image backend.
+- `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` for verified accounts and cloud history.
+
+Supabase production checklist:
+
+- Run [supabase/schema.sql](supabase/schema.sql) against your project.
+- Enable email confirmations if you want verified-email sign-up enforced.
+- Enable Google OAuth and add your Vercel URL plus local dev URL as redirect origins.
+- Keep the anon key in Vercel env vars only; do not hardcode it.
 
 ## Requirements
 
