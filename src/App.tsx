@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { DND_CLASSES } from "./data/dnd";
 import { STARTING_CONDITIONS, pickRandomStartingCondition } from "./data/startingConditions";
 import {
@@ -20,6 +20,12 @@ import {
   runDungeonMasterTurn,
   runNpcTurn,
 } from "./lib/gameAgent";
+import { createCombatFromGame, moveCombatant } from "./lib/combat";
+import {
+  inferCampaignTheme,
+  maintainGameContext,
+  normalizeGameState,
+} from "./lib/gameState";
 import { getDefaultModelId, getToolCallingModels } from "./lib/models";
 import { OPENROUTER_MODELS } from "./lib/openrouter";
 import { DEFAULT_OPENROUTER_MODEL } from "./lib/providerConfig";
@@ -30,6 +36,12 @@ import {
   storeEncryptedOpenRouterKey,
 } from "./lib/secureStorage";
 import type {
+  ActionCheck,
+  ActionRisk,
+  ArtFocus,
+  ArtProviderKind,
+  ArtWorkflowConfig,
+  CampaignThemeId,
   CloudCampaignSave,
   EngineStatus,
   GameState,
@@ -43,10 +55,80 @@ import type {
 } from "./types";
 
 const STORAGE_KEY = "the-infinite-game/session";
+const MUSIC_STORAGE_KEY = "the-infinite-game/music";
 
-type GameTab = "journal" | "surroundings" | "inventory" | "npcs" | "player" | "quests";
+type GameTab = "journal" | "surroundings" | "combat" | "party" | "inventory" | "player" | "quests";
 type AuthMode = "signin" | "signup";
 type AsyncStatus = "idle" | "loading" | "ready" | "error";
+type TerminalTheme = CampaignThemeId;
+type AbilityKey = keyof GameState["player"]["abilityScores"];
+
+const ART_FOCI: ArtFocus[] = ["scene", "environment", "character", "portrait", "enemy", "item"];
+const ACTION_RISKS: ActionRisk[] = ["controlled", "risky", "desperate"];
+const ABILITY_LABELS: Array<{ id: AbilityKey; label: string }> = [
+  { id: "strength", label: "Force" },
+  { id: "dexterity", label: "Finesse" },
+  { id: "constitution", label: "Endure" },
+  { id: "intelligence", label: "Study" },
+  { id: "wisdom", label: "Sense" },
+  { id: "charisma", label: "Sway" },
+];
+const MUSIC_TRACKS = [
+  { title: "Glass Harbors", src: "/music/Glass%20Harbors.mp3" },
+  { title: "Pearl Strings", src: "/music/Pearl%20Strings.mp3" },
+  { title: "Tin Cup Radiance", src: "/music/Tin%20Cup%20Radiance.mp3" },
+  { title: "Velvet Dungeon", src: "/music/Velvet%20Dungeon.mp3" },
+];
+const DIRECTOR_ACTIONS: Array<{ label: string; prompt: string; tab: GameTab }> = [
+  {
+    label: "World Pulse",
+    tab: "journal",
+    prompt:
+      "Advance the living world one beat: move a faction, reveal a pressure, update clocks, and show one new opportunity without requiring the player to be present everywhere.",
+  },
+  {
+    label: "Faction Turn",
+    tab: "quests",
+    prompt:
+      "Run a faction turn in the background. Pick the most relevant faction, advance its agenda, commit durable memory, and create or update a quest hook if the player can react.",
+  },
+  {
+    label: "Recap",
+    tab: "journal",
+    prompt:
+      "Give a concise in-world campaign recap, archive what matters into memory, restate the current stakes, and offer sharp next actions.",
+  },
+  {
+    label: "Travel",
+    tab: "surroundings",
+    prompt:
+      "Frame a travel montage to a meaningful nearby destination with one discovery, one complication, and an updated environment.",
+  },
+  {
+    label: "Downtime",
+    tab: "party",
+    prompt:
+      "Run a downtime beat. Let party members and contacts pursue goals, heal or spend resources when earned, and surface one relationship consequence.",
+  },
+  {
+    label: "Treasure",
+    tab: "inventory",
+    prompt:
+      "Offer a fair treasure, clue, craft material, or trade opportunity that fits the current danger. Do not grant it for free unless the fiction already earned it.",
+  },
+  {
+    label: "Mystery",
+    tab: "journal",
+    prompt:
+      "Introduce or deepen a mystery with a concrete clue, a false lead risk, and one NPC or faction who cares about the answer.",
+  },
+  {
+    label: "Rest",
+    tab: "player",
+    prompt:
+      "Resolve an attempted rest under the current rules. Restore only what the fiction allows, advance clocks if danger remains, and update resources.",
+  },
+];
 
 function createStoryBeat(
   speaker: StorySpeaker,
@@ -96,6 +178,73 @@ function formatResourceMeter(current: number, max: number): string {
   return `${Math.max(0, Math.min(100, (current / max) * 100))}%`;
 }
 
+function abilityModifier(score: number): number {
+  return Math.floor((score - 10) / 2);
+}
+
+function inferActionAbility(action: string): AbilityKey {
+  const lowered = action.toLowerCase();
+  if (/(force|break|lift|shove|smash|grapple|strike|cleave)/.test(lowered)) {
+    return "strength";
+  }
+  if (/(sneak|hide|dodge|aim|shoot|balance|lockpick|slip)/.test(lowered)) {
+    return "dexterity";
+  }
+  if (/(endure|resist|hold|survive|march|poison|pain)/.test(lowered)) {
+    return "constitution";
+  }
+  if (/(study|hack|decode|recall|craft|analyze|ritual|map)/.test(lowered)) {
+    return "intelligence";
+  }
+  if (/(sense|track|listen|search|notice|heal|read the room|pray)/.test(lowered)) {
+    return "wisdom";
+  }
+  if (/(talk|convince|lie|perform|command|bargain|comfort|taunt)/.test(lowered)) {
+    return "charisma";
+  }
+  return "wisdom";
+}
+
+function createActionCheck(game: GameState, risk: ActionRisk, ability: AbilityKey): ActionCheck {
+  const roll = Math.floor(Math.random() * 20) + 1;
+  const modifier = abilityModifier(game.player.abilityScores[ability]);
+  const difficulty = risk === "controlled" ? 11 : risk === "desperate" ? 17 : 14;
+  const total = roll + modifier;
+  const outcomeBand =
+    roll === 20 || total >= difficulty + 6
+      ? "critical"
+      : total >= difficulty
+        ? "success"
+        : total >= difficulty - 4
+          ? "mixed"
+          : "miss";
+
+  return {
+    id: `check_${crypto.randomUUID()}`,
+    ability,
+    risk,
+    roll,
+    modifier,
+    total,
+    difficulty,
+    outcomeBand,
+    createdAt: Date.now(),
+  };
+}
+
+function buildActionPacket(action: string, check: ActionCheck, game: GameState): string {
+  const shortcuts = game.sceneControls.blockedShortcuts.join("; ") || "none listed";
+  const moves = game.sceneControls.availableMoves.join("; ") || "improvise carefully";
+  return [
+    `Player intent: ${action}`,
+    `Action check: ${check.ability} ${check.risk}, d20 ${check.roll} ${check.modifier >= 0 ? "+" : ""}${check.modifier} = ${check.total} vs DC ${check.difficulty} (${check.outcomeBand}).`,
+    `Scene stakes: ${game.sceneControls.stakes}`,
+    `Available action lanes: ${moves}`,
+    `Do not allow these shortcuts as declarations: ${shortcuts}`,
+    "Resolve this as an attempt, not automatic success. Apply costs, resource changes, grid movement, ally/enemy actions, clocks, and consequences through tools.",
+  ].join("\n");
+}
+
 function buildCampaignTitle(game: GameState): string {
   const trimmedTheme = game.theme.trim();
   const headline = trimmedTheme.length > 52 ? `${trimmedTheme.slice(0, 52)}...` : trimmedTheme;
@@ -120,6 +269,7 @@ function isCompatibleSession(value: unknown): value is SavedSession {
 
 function App() {
   const supabaseEnabled = isSupabaseConfigured();
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const [hasHydratedSession, setHasHydratedSession] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [playerName, setPlayerName] = useState("Traveler");
@@ -137,6 +287,9 @@ function App() {
   const [selectedNpcId, setSelectedNpcId] = useState<string | undefined>(undefined);
   const [activeTab, setActiveTab] = useState<GameTab>("surroundings");
   const [actionInput, setActionInput] = useState("");
+  const [selectedActionRisk, setSelectedActionRisk] = useState<ActionRisk>("risky");
+  const [selectedActionAbility, setSelectedActionAbility] = useState<AbilityKey>("wisdom");
+  const [selectedCombatantId, setSelectedCombatantId] = useState("player");
   const [npcInput, setNpcInput] = useState("");
   const [busyLabel, setBusyLabel] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
@@ -155,6 +308,77 @@ function App() {
   const [cloudSaveId, setCloudSaveId] = useState<string | undefined>(undefined);
   const [cloudSyncLabel, setCloudSyncLabel] = useState("");
   const [cloudError, setCloudError] = useState("");
+  const [terminalTheme, setTerminalTheme] = useState<TerminalTheme>("mono");
+  const [workflowName, setWorkflowName] = useState("Comfy workflow");
+  const [workflowFocus, setWorkflowFocus] = useState<ArtFocus>("scene");
+  const [workflowJson, setWorkflowJson] = useState("");
+  const [workflowPromptNodeId, setWorkflowPromptNodeId] = useState("");
+  const [workflowPromptInputName, setWorkflowPromptInputName] = useState("text");
+  const [musicTrackIndex, setMusicTrackIndex] = useState(0);
+  const [musicVolume, setMusicVolume] = useState(0.55);
+  const [musicMuted, setMusicMuted] = useState(false);
+  const [musicPlaying, setMusicPlaying] = useState(false);
+  const [musicError, setMusicError] = useState("");
+
+  useEffect(() => {
+    if (!game) {
+      setTerminalTheme(inferCampaignTheme(customTheme.trim() || randomSeed).id);
+    }
+  }, [customTheme, game, randomSeed]);
+
+  useEffect(() => {
+    const raw = localStorage.getItem(MUSIC_STORAGE_KEY);
+    if (!raw) {
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(raw) as {
+        trackIndex?: number;
+        volume?: number;
+        muted?: boolean;
+      };
+      if (typeof parsed.trackIndex === "number") {
+        setMusicTrackIndex(Math.min(MUSIC_TRACKS.length - 1, Math.max(0, parsed.trackIndex)));
+      }
+      if (typeof parsed.volume === "number") {
+        setMusicVolume(Math.min(1, Math.max(0, parsed.volume)));
+      }
+      if (typeof parsed.muted === "boolean") {
+        setMusicMuted(parsed.muted);
+      }
+    } catch {
+      localStorage.removeItem(MUSIC_STORAGE_KEY);
+    }
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem(
+      MUSIC_STORAGE_KEY,
+      JSON.stringify({ trackIndex: musicTrackIndex, volume: musicVolume, muted: musicMuted }),
+    );
+  }, [musicMuted, musicTrackIndex, musicVolume]);
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) {
+      return;
+    }
+    audio.volume = musicMuted ? 0 : musicVolume;
+    audio.muted = musicMuted;
+  }, [musicMuted, musicVolume]);
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio || !musicPlaying) {
+      return;
+    }
+
+    void audio.play().catch(() => {
+      setMusicPlaying(false);
+      setMusicError("Press play to start music in this browser.");
+    });
+  }, [musicPlaying, musicTrackIndex]);
 
   const loadWebllmCatalog = useCallback(async () => {
     if (webllmCatalogStatus === "loading" || webllmCatalogStatus === "ready") {
@@ -291,19 +515,20 @@ function App() {
         return;
       }
 
-      setGame(parsed.game);
+      const normalizedGame = normalizeGameState(parsed.game);
+      setGame(normalizedGame);
       setSelectedNpcId(parsed.selectedNpcId);
-      setSelectedProvider(parsed.game.selectedProvider ?? "openrouter");
-      setSelectedModelId(parsed.game.selectedProvider === "webllm" ? parsed.game.selectedModelId : "");
+      setSelectedProvider(normalizedGame.selectedProvider ?? "openrouter");
+      setSelectedModelId(normalizedGame.selectedProvider === "webllm" ? normalizedGame.selectedModelId : "");
       setSelectedOpenRouterModel(
-        parsed.game.selectedProvider === "openrouter"
-          ? parsed.game.selectedModelId
+        normalizedGame.selectedProvider === "openrouter"
+          ? normalizedGame.selectedModelId
           : DEFAULT_OPENROUTER_MODEL,
       );
-      setSelectedClassId(parsed.game.player.classId);
+      setSelectedClassId(normalizedGame.player.classId);
       setEngineStatus({
         phase: "idle",
-        text: `Saved campaign found for ${parsed.game.playerName}. Resume with ${parsed.game.selectedProvider === "openrouter" ? `OpenRouter / ${parsed.game.selectedModelId}` : `WebLLM / ${parsed.game.selectedModelId}`}.`,
+        text: `Saved campaign found for ${normalizedGame.playerName}. Resume with ${normalizedGame.selectedProvider === "openrouter" ? `OpenRouter / ${normalizedGame.selectedModelId}` : `WebLLM / ${normalizedGame.selectedModelId}`}.`,
       });
     } catch {
       localStorage.removeItem(STORAGE_KEY);
@@ -509,14 +734,15 @@ function App() {
   }
 
   async function handleLoadCloudSave(save: CloudCampaignSave) {
-    setGame(save.game);
+    const normalizedGame = normalizeGameState(save.game);
+    setGame(normalizedGame);
     setSelectedNpcId(save.selectedNpcId);
-    setSelectedProvider(save.game.selectedProvider);
-    setSelectedClassId(save.game.player.classId);
-    setSelectedModelId(save.game.selectedProvider === "webllm" ? save.game.selectedModelId : "");
+    setSelectedProvider(normalizedGame.selectedProvider);
+    setSelectedClassId(normalizedGame.player.classId);
+    setSelectedModelId(normalizedGame.selectedProvider === "webllm" ? normalizedGame.selectedModelId : "");
     setSelectedOpenRouterModel(
-      save.game.selectedProvider === "openrouter"
-        ? save.game.selectedModelId
+      normalizedGame.selectedProvider === "openrouter"
+        ? normalizedGame.selectedModelId
         : DEFAULT_OPENROUTER_MODEL,
     );
     setCloudSaveId(save.id);
@@ -525,7 +751,7 @@ function App() {
       phase: "idle",
       text: `Loaded cloud campaign: ${save.title}`,
     });
-    if (save.game.selectedProvider === "webllm") {
+    if (normalizedGame.selectedProvider === "webllm") {
       void loadWebllmCatalog();
     }
   }
@@ -583,11 +809,11 @@ function App() {
 
       const opening = await runDungeonMasterTurn(
         seededGame,
-        "Begin the adventure. Establish the opening scene, the immediate tension, the first opportunity, any necessary ruleset changes for the setting, and any enemies or NPCs that should already be active.",
+        "Begin the adventure. Establish the opening scene, the immediate tension, the first fair opportunity, the campaign UI theme, the current action rails, any necessary ruleset changes for the setting, and any enemies, NPCs, or optional party prospects that should already be active.",
         provider,
       );
 
-      const nextGame: GameState = {
+      const nextGame: GameState = maintainGameContext({
         ...opening.nextState,
         story: [
           ...opening.nextState.story,
@@ -596,7 +822,7 @@ function App() {
             imageUrl: opening.imageUrl,
           }),
         ],
-      };
+      });
 
       setGame(nextGame);
       setSelectedNpcId(nextGame.npcs[0]?.id);
@@ -612,16 +838,19 @@ function App() {
     }
   }
 
-  async function handleStoryAction() {
-    if (!game || !actionInput.trim()) {
+  async function resolveStoryAction(rawAction: string) {
+    if (!game || !rawAction.trim()) {
       return;
     }
 
-    const playerAction = actionInput.trim();
-    const withPlayerBeat: GameState = {
+    const playerAction = rawAction.trim();
+    const ability = selectedActionAbility || inferActionAbility(playerAction);
+    const check = createActionCheck(game, selectedActionRisk, ability);
+    const actionPacket = buildActionPacket(playerAction, check, game);
+    const withPlayerBeat: GameState = maintainGameContext({
       ...game,
-      story: [...game.story, createStoryBeat("player", playerAction)],
-    };
+      story: [...game.story, createStoryBeat("player", playerAction, { check })],
+    });
 
     setGame(withPlayerBeat);
     setActionInput("");
@@ -631,8 +860,8 @@ function App() {
     try {
       const provider = await buildProviderConfig(withPlayerBeat.selectedProvider);
       await ensureProviderReady(provider);
-      const result = await runDungeonMasterTurn(withPlayerBeat, playerAction, provider);
-      const nextGame: GameState = {
+      const result = await runDungeonMasterTurn(withPlayerBeat, actionPacket, provider);
+      const nextGame: GameState = maintainGameContext({
         ...result.nextState,
         story: [
           ...result.nextState.story,
@@ -641,7 +870,7 @@ function App() {
             imageUrl: result.imageUrl,
           }),
         ],
-      };
+      });
       setGame(nextGame);
       setActiveTab("journal");
       if (!selectedNpcId && nextGame.npcs[0]) {
@@ -653,6 +882,17 @@ function App() {
     } finally {
       setBusyLabel("");
     }
+  }
+
+  async function handleStoryAction() {
+    await resolveStoryAction(actionInput);
+  }
+
+  async function handleQuickAction(action: string, tab?: GameTab) {
+    if (tab) {
+      setActiveTab(tab);
+    }
+    await resolveStoryAction(action);
   }
 
   async function handleNpcSend() {
@@ -683,15 +923,15 @@ function App() {
       const provider = await buildProviderConfig(stagedGame.selectedProvider);
       await ensureProviderReady(provider);
       const reply = await runNpcTurn(stagedGame, selectedNpcId, playerLine, provider);
-      const nextGame: GameState = {
+      const nextGame: GameState = maintainGameContext({
         ...stagedGame,
         npcChats: {
           ...stagedGame.npcChats,
           [selectedNpcId]: [...updatedChat, createNpcMessage("npc", reply)],
         },
-      };
+      });
       setGame(nextGame);
-      setActiveTab("npcs");
+      setActiveTab("party");
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "The NPC did not respond.");
       setGame(game);
@@ -708,6 +948,7 @@ function App() {
     setCloudSyncLabel("");
     setActiveTab("surroundings");
     setActionInput("");
+    setSelectedCombatantId("player");
     setNpcInput("");
     setBusyLabel("");
     setErrorMessage("");
@@ -717,8 +958,185 @@ function App() {
     });
   }
 
+  async function handleToggleMusic() {
+    const audio = audioRef.current;
+    if (!audio) {
+      return;
+    }
+
+    setMusicError("");
+    if (musicPlaying) {
+      audio.pause();
+      setMusicPlaying(false);
+      return;
+    }
+
+    try {
+      await audio.play();
+      setMusicPlaying(true);
+    } catch {
+      setMusicPlaying(false);
+      setMusicError("Music playback needs a browser gesture. Try play again.");
+    }
+  }
+
+  function handleNextTrack() {
+    setMusicTrackIndex((current) => (current + 1) % MUSIC_TRACKS.length);
+    setMusicPlaying(true);
+  }
+
+  function handlePreviousTrack() {
+    setMusicTrackIndex((current) => (current - 1 + MUSIC_TRACKS.length) % MUSIC_TRACKS.length);
+    setMusicPlaying(true);
+  }
+
+  function handleTrackEnded() {
+    setMusicTrackIndex((current) => (current + 1) % MUSIC_TRACKS.length);
+    setMusicPlaying(true);
+  }
+
+  async function handleSwitchRuntime() {
+    if (!game) {
+      return;
+    }
+
+    setBusyLabel("Switching runtime...");
+    setErrorMessage("");
+    try {
+      const provider = await buildProviderConfig(selectedProvider);
+      await ensureProviderReady(provider);
+      const nextGame = maintainGameContext({
+        ...game,
+        selectedProvider: provider.kind,
+        selectedModelId: provider.modelId,
+        story: [
+          ...game.story,
+          createStoryBeat(
+            "system",
+            `Runtime switched to ${provider.kind === "openrouter" ? `OpenRouter / ${provider.modelId}` : `WebLLM / ${provider.modelId}`}.`,
+          ),
+        ],
+      });
+      setGame(nextGame);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Failed to switch runtime.");
+      setEngineStatus({ phase: "error", text: "Runtime switch failed." });
+    } finally {
+      setBusyLabel("");
+    }
+  }
+
+  function handleStartCombatGrid() {
+    if (!game) {
+      return;
+    }
+    const combat = createCombatFromGame(game);
+    setGame(maintainGameContext({ ...game, combat }));
+    setSelectedCombatantId("player");
+    setActiveTab("combat");
+  }
+
+  function handleEndCombatGrid() {
+    if (!game) {
+      return;
+    }
+    setGame(
+      maintainGameContext({
+        ...game,
+        combat: {
+          ...game.combat,
+          active: false,
+          log: ["Combat closed by the player.", ...game.combat.log].slice(0, 16),
+          updatedAt: Date.now(),
+        },
+      }),
+    );
+  }
+
+  function handleCombatCellClick(x: number, y: number) {
+    if (!game || !game.combat.active) {
+      return;
+    }
+    setGame(
+      maintainGameContext({
+        ...game,
+        combat: moveCombatant(game.combat, selectedCombatantId || "player", x, y),
+      }),
+    );
+  }
+
+  function updateArtSettings(patch: Partial<GameState["artSettings"]>) {
+    if (!game) {
+      return;
+    }
+    setGame(
+      maintainGameContext({
+        ...game,
+        artSettings: {
+          ...game.artSettings,
+          ...patch,
+          selectedWorkflowByFocus: {
+            ...game.artSettings.selectedWorkflowByFocus,
+            ...(patch.selectedWorkflowByFocus ?? {}),
+          },
+          workflows: patch.workflows ?? game.artSettings.workflows,
+        },
+      }),
+    );
+  }
+
+  function handleAddWorkflow() {
+    if (!game || !workflowJson.trim()) {
+      setErrorMessage("Paste a ComfyUI workflow JSON before adding it.");
+      return;
+    }
+
+    try {
+      JSON.parse(workflowJson);
+    } catch {
+      setErrorMessage("The ComfyUI workflow is not valid JSON.");
+      return;
+    }
+
+    const workflow: ArtWorkflowConfig = {
+      id: `workflow_${crypto.randomUUID()}`,
+      name: workflowName.trim() || `${workflowFocus} workflow`,
+      focus: workflowFocus,
+      workflowJson,
+      promptNodeId: workflowPromptNodeId.trim() || undefined,
+      promptInputName: workflowPromptInputName.trim() || "text",
+      enabled: true,
+    };
+    updateArtSettings({
+      workflows: [workflow, ...game.artSettings.workflows],
+      selectedWorkflowByFocus: {
+        ...game.artSettings.selectedWorkflowByFocus,
+        [workflowFocus]: workflow.id,
+      },
+    });
+    setWorkflowJson("");
+    setWorkflowName("Comfy workflow");
+    setWorkflowPromptNodeId("");
+    setWorkflowPromptInputName("text");
+    setErrorMessage("");
+  }
+
+  function handleSelectWorkflow(focus: ArtFocus, workflowId: string) {
+    if (!game) {
+      return;
+    }
+    updateArtSettings({
+      selectedWorkflowByFocus: {
+        ...game.artSettings.selectedWorkflowByFocus,
+        [focus]: workflowId,
+      },
+    });
+  }
+
   const activeNpc = game?.npcs.find((npc) => npc.id === selectedNpcId) ?? game?.npcs[0];
   const activeNpcChat = activeNpc ? game?.npcChats[activeNpc.id] ?? [] : [];
+  const activeTheme = game?.campaignTheme ?? inferCampaignTheme(customTheme.trim() || randomSeed);
+  const activeMusicTrack = MUSIC_TRACKS[musicTrackIndex] ?? MUSIC_TRACKS[0];
   const usingCustomTheme = customTheme.trim().length > 0;
   const selectedClass = DND_CLASSES.find((entry) => entry.id === selectedClassId) ?? DND_CLASSES[0];
   const startDisabled = Boolean(busyLabel) || (selectedProvider === "webllm"
@@ -729,15 +1147,23 @@ function App() {
     game?.latestArtUrl;
   const gameTabs: Array<{ id: GameTab; label: string }> = [
     { id: "journal", label: "Journal" },
-    { id: "surroundings", label: "Surroundings" },
+    { id: "surroundings", label: "Scene" },
+    { id: "combat", label: "Combat" },
+    { id: "party", label: "Party" },
     { id: "inventory", label: "Inventory" },
-    { id: "npcs", label: "NPCs + Enemies" },
     { id: "player", label: "Character" },
-    { id: "quests", label: "Quests + Rules" },
+    { id: "quests", label: "Quests" },
   ];
 
   return (
-    <div className={`app-shell arena-shell ${game ? "in-game-shell" : "home-terminal-shell"}`}>
+    <div className={`app-shell arena-shell terminal-shell theme-${game ? activeTheme.id : terminalTheme} ${game ? "in-game-shell" : "home-terminal-shell"}`}>
+      <audio
+        ref={audioRef}
+        src={activeMusicTrack.src}
+        preload="metadata"
+        onEnded={handleTrackEnded}
+        onError={() => setMusicError("Music file could not be loaded.")}
+      />
       {!game ? (
         <div className="home-rgb-grid" aria-hidden="true">
           <span className="rgb-line rgb-line-red" />
@@ -757,7 +1183,7 @@ function App() {
             {!game ? (
               <div className="terminal-meta-row">
                 <span className="terminal-box">STATUS: READY</span>
-                <span className="terminal-box">THEME: MONO CRT</span>
+                <span className="terminal-box">THEME: {activeTheme.label}</span>
                 <span className="terminal-box">INPUT: LIVE</span>
               </div>
             ) : null}
@@ -775,6 +1201,44 @@ function App() {
             {cloudSyncLabel ? <div className="status-pill status-ready">{cloudSyncLabel}</div> : null}
             {cloudError ? <div className="status-pill status-error">{cloudError}</div> : null}
             {errorMessage ? <div className="status-pill status-error">{errorMessage}</div> : null}
+            {musicError ? <div className="status-pill status-error">{musicError}</div> : null}
+            <div className="music-strip">
+              <div>
+                <p className="eyebrow">Music</p>
+                <strong>{activeMusicTrack.title}</strong>
+              </div>
+              <div className="music-controls">
+                <button type="button" className="ghost-button icon-button" onClick={handlePreviousTrack} title="Previous track">
+                  {"<<"}
+                </button>
+                <button type="button" className="primary-button icon-button" onClick={() => void handleToggleMusic()}>
+                  {musicPlaying ? "Pause" : "Play"}
+                </button>
+                <button type="button" className="ghost-button icon-button" onClick={handleNextTrack} title="Next track">
+                  {">>"}
+                </button>
+                <button
+                  type="button"
+                  className="ghost-button icon-button"
+                  onClick={() => setMusicMuted((current) => !current)}
+                >
+                  {musicMuted ? "Unmute" : "Mute"}
+                </button>
+              </div>
+              <input
+                className="music-volume"
+                type="range"
+                min={0}
+                max={1}
+                step={0.01}
+                value={musicMuted ? 0 : musicVolume}
+                onChange={(event) => {
+                  setMusicVolume(Number(event.target.value));
+                  setMusicMuted(false);
+                }}
+                aria-label="Music volume"
+              />
+            </div>
           </div>
         </header>
 
@@ -1105,7 +1569,7 @@ function App() {
                   <p className="eyebrow">Campaign Frame</p>
                   <h2>{game.theme}</h2>
                   <p className="subtle-copy">
-                    {game.environment.location} · {game.environment.atmosphere} · {game.player.className} · {game.selectedProvider === "openrouter" ? `OpenRouter ${game.selectedModelId}` : `WebLLM ${game.selectedModelId}`} · Turn {game.turnCount}
+                    {game.environment.location} - {game.environment.atmosphere} - {game.player.className} - {activeTheme.label} - Turn {game.turnCount}
                   </p>
                 </div>
                 <button type="button" className="ghost-button" onClick={handleReset}>
@@ -1147,6 +1611,14 @@ function App() {
                             <span>{formatStoryTimestamp(beat.createdAt)}</span>
                           </div>
                           <p>{beat.content}</p>
+                          {beat.check ? (
+                            <div className="tool-event-row">
+                              <span className="tool-event-chip">
+                                {beat.check.risk} {beat.check.ability}: {beat.check.total} vs {beat.check.difficulty}
+                              </span>
+                              <span className="tool-event-chip">{beat.check.outcomeBand}</span>
+                            </div>
+                          ) : null}
                           {beat.imageUrl ? (
                             <img className="story-image" src={beat.imageUrl} alt="Generated scene art" />
                           ) : null}
@@ -1234,6 +1706,132 @@ function App() {
                   </>
                 ) : null}
 
+                {activeTab === "combat" ? (
+                  <>
+                    <div className="panel-header">
+                      <p className="eyebrow">Combat Grid</p>
+                      <span className="meta-chip">
+                        {game.combat.active ? `Round ${game.combat.round}` : `${game.enemies.length} foes`}
+                      </span>
+                    </div>
+                    <div className="button-row">
+                      <button type="button" className="ghost-button" onClick={handleStartCombatGrid}>
+                        {game.combat.active ? "Regenerate Terrain" : "Open Grid"}
+                      </button>
+                      <button
+                        type="button"
+                        className="ghost-button"
+                        onClick={handleEndCombatGrid}
+                        disabled={!game.combat.active}
+                      >
+                        End Combat
+                      </button>
+                    </div>
+                    {game.combat.active ? (
+                      <>
+                        <div className="combat-toolbar">
+                          <label className="field-label" htmlFor="combatant-select">
+                            Move
+                          </label>
+                          <select
+                            id="combatant-select"
+                            className="text-input"
+                            value={selectedCombatantId}
+                            onChange={(event) => setSelectedCombatantId(event.target.value)}
+                          >
+                            {game.combat.combatants.map((combatant) => (
+                              <option key={combatant.id} value={combatant.id}>
+                                {combatant.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div
+                          className="combat-grid"
+                          style={{ gridTemplateColumns: `repeat(${game.combat.width}, minmax(42px, 1fr))` }}
+                        >
+                          {game.combat.cells.map((cell) => {
+                            const occupants = game.combat.combatants.filter(
+                              (combatant) => combatant.x === cell.x && combatant.y === cell.y,
+                            );
+                            return (
+                              <button
+                                key={`${cell.x}-${cell.y}`}
+                                type="button"
+                                className={`combat-cell terrain-${cell.terrain}`}
+                                onClick={() => handleCombatCellClick(cell.x, cell.y)}
+                                title={`${cell.terrain}${cell.hazard ? `: ${cell.hazard}` : ""}`}
+                              >
+                                <span className="combat-coordinate">{String.fromCharCode(65 + cell.x)}{cell.y + 1}</span>
+                                <span className="combat-terrain">{cell.label ?? cell.terrain}</span>
+                                <span className="combatants-stack">
+                                  {occupants.map((combatant) => (
+                                    <span key={combatant.id} className={`combat-token token-${combatant.kind}`}>
+                                      {combatant.name.slice(0, 2).toUpperCase()}
+                                    </span>
+                                  ))}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <div className="arena-actors-grid">
+                          <section className="stack-list">
+                            {game.combat.combatants.map((combatant) => (
+                              <article key={combatant.id} className="mini-card arena-panel-card">
+                                <div className="mini-card-header">
+                                  <strong>{combatant.name}</strong>
+                                  <span className="meta-chip">{combatant.kind}</span>
+                                </div>
+                                <div className="tag-row compact-tags">
+                                  <span className="meta-chip">
+                                    {String.fromCharCode(65 + combatant.x)}{combatant.y + 1}
+                                  </span>
+                                  {combatant.hp !== undefined ? (
+                                    <span className="meta-chip">HP {combatant.hp}/{combatant.maxHp}</span>
+                                  ) : null}
+                                  {combatant.conditions.map((condition) => (
+                                    <span key={condition} className="meta-chip">
+                                      {condition}
+                                    </span>
+                                  ))}
+                                </div>
+                              </article>
+                            ))}
+                          </section>
+                          <section className="stack-list">
+                            {game.enemies.length === 0 ? (
+                              <div className="art-placeholder arena-placeholder">No active enemies.</div>
+                            ) : (
+                              game.enemies.map((enemy) => (
+                                <article key={enemy.id} className="enemy-card arena-panel-card">
+                                  <img src={enemy.artUrl} alt={enemy.name} className="enemy-avatar" />
+                                  <div>
+                                    <div className="mini-card-header">
+                                      <strong>{enemy.name}</strong>
+                                      <span className="meta-chip">Lv {enemy.level}</span>
+                                    </div>
+                                    <p>{enemy.archetype} - {enemy.disposition}</p>
+                                    <div className="tag-row compact-tags">
+                                      <span className="meta-chip">HP {enemy.stats.health}/{enemy.stats.maxHealth}</span>
+                                      <span className="meta-chip">AC {enemy.stats.armorClass}</span>
+                                      <span className="meta-chip">THR {enemy.stats.threat}</span>
+                                    </div>
+                                  </div>
+                                </article>
+                              ))
+                            )}
+                          </section>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="art-placeholder arena-placeholder">
+                        Open the grid when distance, terrain, or enemy movement matters.
+                      </div>
+                    )}
+                  </>
+                ) : null}
+
                 {activeTab === "inventory" ? (
                   <>
                     <div className="panel-header">
@@ -1272,18 +1870,68 @@ function App() {
                   </>
                 ) : null}
 
-                {activeTab === "npcs" ? (
+                {activeTab === "party" ? (
                   <>
                     <div className="panel-header">
-                      <p className="eyebrow">NPCs and Enemies</p>
+                      <p className="eyebrow">Party and Contacts</p>
                       <span className="meta-chip">
-                        {game.npcs.length} contacts · {game.enemies.length} foes
+                        {game.party.length} allies - {game.npcs.length} contacts
                       </span>
                     </div>
                     <div className="arena-actors-grid">
                       <section className="arena-actor-column">
                         <div className="panel-header">
-                          <strong>Known NPCs</strong>
+                          <strong>AI Party</strong>
+                          <span className="meta-chip">{game.party.length}</span>
+                        </div>
+                        <div className="stack-list arena-scroll-region">
+                          {game.party.length === 0 ? (
+                            <div className="art-placeholder arena-placeholder">
+                              No AI companions yet.
+                            </div>
+                          ) : (
+                            game.party.map((member) => (
+                              <article key={member.id} className="enemy-card arena-panel-card">
+                                <img src={member.avatarUrl} alt={member.name} className="enemy-avatar" />
+                                <div>
+                                  <div className="mini-card-header">
+                                    <strong>{member.name}</strong>
+                                    <span className="meta-chip">Lv {member.level}</span>
+                                  </div>
+                                  <p>{member.role} - {member.personality}</p>
+                                  <div className="tag-row compact-tags">
+                                    <span className="meta-chip">HP {member.resources.health}/{member.resources.maxHealth}</span>
+                                    <span className="meta-chip">Loyalty {member.loyalty}</span>
+                                    <span className="meta-chip">{member.automated ? "auto" : "manual"}</span>
+                                  </div>
+                                </div>
+                              </article>
+                            ))
+                          )}
+                        </div>
+                        <div className="button-row">
+                          <button
+                            type="button"
+                            className="ghost-button"
+                            onClick={() => void handleQuickAction("Look for a trustworthy AI-controlled companion who fits this campaign, then recruit or introduce them if it makes sense.", "party")}
+                            disabled={Boolean(busyLabel)}
+                          >
+                            Find Ally
+                          </button>
+                          <button
+                            type="button"
+                            className="ghost-button"
+                            onClick={() => void handleQuickAction("Ask the current AI party members to take sensible actions based on their tactics and the immediate danger.", "party")}
+                            disabled={Boolean(busyLabel) || game.party.length === 0}
+                          >
+                            Party Acts
+                          </button>
+                        </div>
+                      </section>
+
+                      <section className="arena-actor-column">
+                        <div className="panel-header">
+                          <strong>Contacts</strong>
                           <span className="meta-chip">{game.npcs.length}</span>
                         </div>
                         <div className="npc-roster">
@@ -1341,47 +1989,6 @@ function App() {
                             When the DM introduces someone important, their dedicated chat appears here.
                           </div>
                         )}
-                      </section>
-
-                      <section className="arena-actor-column">
-                        <div className="panel-header">
-                          <strong>Active Enemies</strong>
-                          <span className="meta-chip">{game.enemies.length}</span>
-                        </div>
-                        <div className="stack-list arena-scroll-region">
-                          {game.enemies.length === 0 ? (
-                            <div className="art-placeholder arena-placeholder">No active enemies.</div>
-                          ) : (
-                            game.enemies.map((enemy) => (
-                              <article key={enemy.id} className="enemy-card arena-panel-card">
-                                <img src={enemy.artUrl} alt={enemy.name} className="enemy-avatar" />
-                                <div>
-                                  <div className="mini-card-header">
-                                    <strong>{enemy.name}</strong>
-                                    <span className="meta-chip">Lv {enemy.level}</span>
-                                  </div>
-                                  <p>
-                                    {enemy.archetype} · {enemy.disposition}
-                                  </p>
-                                  <div className="tag-row compact-tags">
-                                    <span className="meta-chip">
-                                      HP {enemy.stats.health}/{enemy.stats.maxHealth}
-                                    </span>
-                                    <span className="meta-chip">AC {enemy.stats.armorClass}</span>
-                                    <span className="meta-chip">ATK {enemy.stats.attack}</span>
-                                    <span className="meta-chip">MAG {enemy.stats.magic}</span>
-                                    <span className="meta-chip">THR {enemy.stats.threat}</span>
-                                    {enemy.tags.map((tag) => (
-                                      <span key={tag} className="meta-chip">
-                                        {tag}
-                                      </span>
-                                    ))}
-                                  </div>
-                                </div>
-                              </article>
-                            ))
-                          )}
-                        </div>
                       </section>
                     </div>
                   </>
@@ -1523,15 +2130,68 @@ function App() {
               </div>
 
               <div className="panel composer-panel arena-command-panel">
+                <div className="scene-rails">
+                  <div>
+                    <span className="meta-chip">{game.sceneControls.clockName} {game.sceneControls.clockValue}/{game.sceneControls.clockMax}</span>
+                    <p className="subtle-copy">{game.sceneControls.stakes}</p>
+                  </div>
+                  <div className="tag-row compact-tags">
+                    {game.sceneControls.availableMoves.map((move) => (
+                      <button
+                        key={move}
+                        type="button"
+                        className="seed-chip"
+                        onClick={() => setActionInput((current) => current ? `${current} ${move.toLowerCase()}` : move)}
+                      >
+                        {move}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="action-controls">
+                  <label className="field-label" htmlFor="action-risk">
+                    Risk
+                  </label>
+                  <select
+                    id="action-risk"
+                    className="text-input"
+                    value={selectedActionRisk}
+                    onChange={(event) => setSelectedActionRisk(event.target.value as ActionRisk)}
+                  >
+                    {ACTION_RISKS.map((risk) => (
+                      <option key={risk} value={risk}>
+                        {risk}
+                      </option>
+                    ))}
+                  </select>
+                  <label className="field-label" htmlFor="action-ability">
+                    Approach
+                  </label>
+                  <select
+                    id="action-ability"
+                    className="text-input"
+                    value={selectedActionAbility}
+                    onChange={(event) => setSelectedActionAbility(event.target.value as AbilityKey)}
+                  >
+                    {ABILITY_LABELS.map((ability) => (
+                      <option key={ability.id} value={ability.id}>
+                        {ability.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
                 <label className="field-label" htmlFor="story-action">
                   What do you do?
                 </label>
                 <textarea
                   id="story-action"
                   className="text-area"
-                  placeholder="Negotiate, investigate, cast, retreat, loot, hack, improvise."
+                  placeholder="State an intent. The DM resolves it as an attempt."
                   value={actionInput}
-                  onChange={(event) => setActionInput(event.target.value)}
+                  onChange={(event) => {
+                    setActionInput(event.target.value);
+                    setSelectedActionAbility(inferActionAbility(event.target.value));
+                  }}
                   disabled={Boolean(busyLabel)}
                 />
                 <button
@@ -1552,15 +2212,246 @@ function App() {
                   <span className="meta-chip">{game.selectedProvider}</span>
                 </div>
                 <p className="subtle-copy">{game.selectedModelId}</p>
-                {game.selectedProvider === "openrouter" ? (
-                  <p className="subtle-copy">
-                    OpenRouter mode is active. The user key remains encrypted at rest on this device and is decrypted only for requests.
-                  </p>
+                <div className="provider-toggle">
+                  <button
+                    type="button"
+                    className={`provider-button ${selectedProvider === "openrouter" ? "provider-button-active" : ""}`}
+                    onClick={() => setSelectedProvider("openrouter")}
+                  >
+                    OpenRouter
+                  </button>
+                  <button
+                    type="button"
+                    className={`provider-button ${selectedProvider === "webllm" ? "provider-button-active" : ""}`}
+                    onClick={() => setSelectedProvider("webllm")}
+                  >
+                    WebLLM
+                  </button>
+                </div>
+                {selectedProvider === "openrouter" ? (
+                  <>
+                    <input
+                      className="text-input"
+                      value={selectedOpenRouterModel}
+                      onChange={(event) => setSelectedOpenRouterModel(event.target.value)}
+                      list="openrouter-models"
+                    />
+                    <datalist id="openrouter-models">
+                      {OPENROUTER_MODELS.map((model) => (
+                        <option key={model} value={model} />
+                      ))}
+                    </datalist>
+                  </>
+                ) : webllmCatalogStatus === "ready" ? (
+                  <select
+                    className="text-input"
+                    value={selectedModelId}
+                    onChange={(event) => setSelectedModelId(event.target.value)}
+                  >
+                    {toolCallingModels.map((model) => (
+                      <option key={model.id} value={model.id}>
+                        {model.label}
+                      </option>
+                    ))}
+                  </select>
                 ) : (
-                  <p className="subtle-copy">
-                    WebLLM mode is active. Local inference depends on WebGPU support and available device memory.
-                  </p>
+                  <button type="button" className="ghost-button" onClick={() => void loadWebllmCatalog()}>
+                    Load WebLLM Models
+                  </button>
                 )}
+                <button
+                  type="button"
+                  className="primary-button"
+                  onClick={() => void handleSwitchRuntime()}
+                  disabled={Boolean(busyLabel)}
+                >
+                  Apply Runtime
+                </button>
+              </div>
+
+              <div className="panel arena-side-panel">
+                <div className="panel-header">
+                  <p className="eyebrow">Director</p>
+                  <span className="meta-chip">Dense play</span>
+                </div>
+                <div className="director-grid">
+                  {DIRECTOR_ACTIONS.map((action) => (
+                    <button
+                      key={action.label}
+                      type="button"
+                      className="ghost-button"
+                      onClick={() => void handleQuickAction(action.prompt, action.tab)}
+                      disabled={Boolean(busyLabel)}
+                    >
+                      {action.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="panel arena-side-panel">
+                <div className="panel-header">
+                  <p className="eyebrow">Art Engine</p>
+                  <span className="meta-chip">{game.artSettings.provider}</span>
+                </div>
+                <label className="field-label" htmlFor="art-provider">
+                  Provider
+                </label>
+                <select
+                  id="art-provider"
+                  className="text-input"
+                  value={game.artSettings.provider}
+                  onChange={(event) => updateArtSettings({ provider: event.target.value as ArtProviderKind })}
+                >
+                  <option value="pollinations">Pollinations</option>
+                  <option value="comfy">ComfyUI</option>
+                </select>
+                {game.artSettings.provider === "comfy" ? (
+                  <>
+                    <label className="field-label" htmlFor="comfy-url">
+                      ComfyUI URL
+                    </label>
+                    <input
+                      id="comfy-url"
+                      className="text-input"
+                      value={game.artSettings.comfyServerUrl}
+                      onChange={(event) => updateArtSettings({ comfyServerUrl: event.target.value })}
+                    />
+                    <label className="field-label" htmlFor="workflow-name">
+                      Add Workflow
+                    </label>
+                    <input
+                      id="workflow-name"
+                      className="text-input"
+                      value={workflowName}
+                      onChange={(event) => setWorkflowName(event.target.value)}
+                    />
+                    <div className="action-controls">
+                      <select
+                        className="text-input"
+                        value={workflowFocus}
+                        onChange={(event) => setWorkflowFocus(event.target.value as ArtFocus)}
+                      >
+                        {ART_FOCI.map((focus) => (
+                          <option key={focus} value={focus}>
+                            {focus}
+                          </option>
+                        ))}
+                      </select>
+                      <input
+                        className="text-input"
+                        value={workflowPromptNodeId}
+                        onChange={(event) => setWorkflowPromptNodeId(event.target.value)}
+                        placeholder="prompt node id"
+                      />
+                    </div>
+                    <input
+                      className="text-input"
+                      value={workflowPromptInputName}
+                      onChange={(event) => setWorkflowPromptInputName(event.target.value)}
+                      placeholder="prompt input name"
+                    />
+                    <textarea
+                      className="text-area compact-area"
+                      value={workflowJson}
+                      onChange={(event) => setWorkflowJson(event.target.value)}
+                      placeholder="Paste ComfyUI workflow JSON"
+                    />
+                    <button type="button" className="ghost-button" onClick={handleAddWorkflow}>
+                      Save Workflow
+                    </button>
+                    <div className="stack-list compact-stack">
+                      {ART_FOCI.map((focus) => (
+                        <label key={focus} className="field-label workflow-select-row">
+                          {focus}
+                          <select
+                            className="text-input"
+                            value={game.artSettings.selectedWorkflowByFocus[focus] ?? ""}
+                            onChange={(event) => handleSelectWorkflow(focus, event.target.value)}
+                          >
+                            <option value="">Auto</option>
+                            {game.artSettings.workflows
+                              .filter((workflow) => workflow.focus === focus || workflow.focus === "all")
+                              .map((workflow) => (
+                                <option key={workflow.id} value={workflow.id}>
+                                  {workflow.name}
+                                </option>
+                              ))}
+                          </select>
+                        </label>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <label className="field-label" htmlFor="pollinations-url">
+                      Image API base
+                    </label>
+                    <input
+                      id="pollinations-url"
+                      className="text-input"
+                      value={game.artSettings.pollinationsBaseUrl}
+                      onChange={(event) => updateArtSettings({ pollinationsBaseUrl: event.target.value })}
+                    />
+                  </>
+                )}
+                <label className="toggle-row">
+                  <input
+                    type="checkbox"
+                    checked={game.artSettings.autoGenerate}
+                    onChange={(event) => updateArtSettings({ autoGenerate: event.target.checked })}
+                  />
+                  Auto-generate new art
+                </label>
+              </div>
+
+              <div className="panel arena-side-panel">
+                <div className="panel-header">
+                  <p className="eyebrow">Context</p>
+                  <span className="meta-chip">{game.archivedStoryCount} archived</span>
+                </div>
+                <div className="action-controls">
+                  <label className="field-label" htmlFor="story-limit">
+                    Story
+                  </label>
+                  <input
+                    id="story-limit"
+                    className="text-input"
+                    type="number"
+                    min={8}
+                    max={80}
+                    value={game.contextSettings.storyLimit}
+                    onChange={(event) =>
+                      setGame(maintainGameContext({
+                        ...game,
+                        contextSettings: {
+                          ...game.contextSettings,
+                          storyLimit: Number(event.target.value),
+                        },
+                      }))
+                    }
+                  />
+                  <label className="field-label" htmlFor="chat-limit">
+                    Chats
+                  </label>
+                  <input
+                    id="chat-limit"
+                    className="text-input"
+                    type="number"
+                    min={4}
+                    max={60}
+                    value={game.contextSettings.npcChatLimit}
+                    onChange={(event) =>
+                      setGame(maintainGameContext({
+                        ...game,
+                        contextSettings: {
+                          ...game.contextSettings,
+                          npcChatLimit: Number(event.target.value),
+                        },
+                      }))
+                    }
+                  />
+                </div>
               </div>
 
               <div className="panel arena-side-panel">

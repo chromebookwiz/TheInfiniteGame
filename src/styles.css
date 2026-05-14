@@ -15,7 +15,97 @@
   --rgb-red: #ff4d4d;
   --rgb-green: #4dff88;
   --rgb-blue: #53a7ff;
+  --terminal-text: #ffffff;
+  --terminal-muted: rgba(255, 255, 255, 0.76);
+  --terminal-line: rgba(255, 255, 255, 0.88);
+  --terminal-line-soft: rgba(255, 255, 255, 0.35);
+  --terminal-panel: #020202;
+  --terminal-panel-soft: #050505;
+  --terminal-panel-alt: #080808;
+  --terminal-active: rgba(255, 255, 255, 0.12);
+  --terminal-gradient: linear-gradient(90deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.08));
+  --terminal-glow: rgba(255, 255, 255, 0.14);
   --shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+}
+
+.theme-mono {
+  --terminal-text: #ffffff;
+  --terminal-muted: rgba(255, 255, 255, 0.76);
+  --terminal-line: rgba(255, 255, 255, 0.88);
+  --terminal-line-soft: rgba(255, 255, 255, 0.35);
+  --terminal-active: rgba(255, 255, 255, 0.12);
+  --terminal-gradient: linear-gradient(90deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.08));
+  --terminal-glow: rgba(255, 255, 255, 0.14);
+}
+
+.theme-phosphor {
+  --terminal-text: #b7ffca;
+  --terminal-muted: rgba(183, 255, 202, 0.76);
+  --terminal-line: rgba(156, 255, 181, 0.92);
+  --terminal-line-soft: rgba(156, 255, 181, 0.35);
+  --terminal-active: rgba(90, 255, 135, 0.14);
+  --terminal-gradient: linear-gradient(90deg, rgba(90, 255, 135, 0.22), rgba(183, 255, 202, 0.08));
+  --terminal-glow: rgba(90, 255, 135, 0.16);
+}
+
+.theme-amber {
+  --terminal-text: #ffd38a;
+  --terminal-muted: rgba(255, 211, 138, 0.76);
+  --terminal-line: rgba(255, 201, 102, 0.92);
+  --terminal-line-soft: rgba(255, 201, 102, 0.35);
+  --terminal-active: rgba(255, 178, 67, 0.14);
+  --terminal-gradient: linear-gradient(90deg, rgba(255, 178, 67, 0.22), rgba(255, 221, 153, 0.08));
+  --terminal-glow: rgba(255, 178, 67, 0.16);
+}
+
+.theme-frost {
+  --terminal-text: #d5efff;
+  --terminal-muted: rgba(213, 239, 255, 0.76);
+  --terminal-line: rgba(146, 216, 255, 0.92);
+  --terminal-line-soft: rgba(146, 216, 255, 0.35);
+  --terminal-active: rgba(96, 196, 255, 0.14);
+  --terminal-gradient: linear-gradient(90deg, rgba(96, 196, 255, 0.22), rgba(213, 239, 255, 0.08));
+  --terminal-glow: rgba(96, 196, 255, 0.16);
+}
+
+.theme-verdant {
+  --terminal-text: #dcffe2;
+  --terminal-muted: rgba(220, 255, 226, 0.76);
+  --terminal-line: rgba(123, 216, 143, 0.9);
+  --terminal-line-soft: rgba(123, 216, 143, 0.34);
+  --terminal-active: rgba(123, 216, 143, 0.13);
+  --terminal-gradient: linear-gradient(90deg, rgba(123, 216, 143, 0.2), rgba(238, 205, 134, 0.08));
+  --terminal-glow: rgba(123, 216, 143, 0.15);
+}
+
+.theme-ember {
+  --terminal-text: #fff0d7;
+  --terminal-muted: rgba(255, 240, 215, 0.74);
+  --terminal-line: rgba(255, 107, 74, 0.9);
+  --terminal-line-soft: rgba(255, 107, 74, 0.34);
+  --terminal-active: rgba(255, 107, 74, 0.13);
+  --terminal-gradient: linear-gradient(90deg, rgba(255, 107, 74, 0.22), rgba(255, 223, 128, 0.08));
+  --terminal-glow: rgba(255, 107, 74, 0.16);
+}
+
+.theme-neon {
+  --terminal-text: #f7e9ff;
+  --terminal-muted: rgba(247, 233, 255, 0.74);
+  --terminal-line: rgba(255, 88, 200, 0.9);
+  --terminal-line-soft: rgba(91, 220, 255, 0.36);
+  --terminal-active: rgba(91, 220, 255, 0.12);
+  --terminal-gradient: linear-gradient(90deg, rgba(255, 88, 200, 0.2), rgba(91, 220, 255, 0.1));
+  --terminal-glow: rgba(255, 88, 200, 0.16);
+}
+
+.theme-royal {
+  --terminal-text: #f0eaff;
+  --terminal-muted: rgba(240, 234, 255, 0.74);
+  --terminal-line: rgba(183, 153, 255, 0.9);
+  --terminal-line-soft: rgba(244, 207, 132, 0.34);
+  --terminal-active: rgba(183, 153, 255, 0.13);
+  --terminal-gradient: linear-gradient(90deg, rgba(183, 153, 255, 0.2), rgba(244, 207, 132, 0.08));
+  --terminal-glow: rgba(183, 153, 255, 0.16);
 }
 
 * {
@@ -135,16 +225,18 @@ button {
 .terminal-title,
 .terminal-prompt,
 .terminal-box,
-.home-terminal-shell .spotlight-copy,
-.home-terminal-shell .text-input,
-.home-terminal-shell .text-area,
-.home-terminal-shell .provider-button,
-.home-terminal-shell .ghost-button,
-.home-terminal-shell .primary-button,
-.home-terminal-shell .seed-chip,
-.home-terminal-shell .subtle-copy,
-.home-terminal-shell .panel p,
-.home-terminal-shell .status-pill {
+.terminal-shell .spotlight-copy,
+.terminal-shell .text-input,
+.terminal-shell .text-area,
+.terminal-shell .provider-button,
+.terminal-shell .ghost-button,
+.terminal-shell .primary-button,
+.terminal-shell .seed-chip,
+.terminal-shell .subtle-copy,
+.terminal-shell .panel p,
+.terminal-shell .status-pill,
+.terminal-shell .story-card p,
+.terminal-shell .arena-tab-button {
   font-family: "VT323", monospace;
 }
 
@@ -183,6 +275,37 @@ button {
   gap: 10px;
 }
 
+.music-strip {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--terminal-line);
+  background: var(--terminal-panel);
+  color: var(--terminal-text);
+}
+
+.music-strip .eyebrow {
+  margin-bottom: 4px;
+}
+
+.music-controls {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.icon-button {
+  min-height: 38px;
+  padding: 8px 10px;
+  font-size: 0.85rem;
+}
+
+.music-volume {
+  width: 100%;
+  accent-color: var(--terminal-text);
+}
+
 .status-pill,
 .meta-chip,
 .quest-badge,
@@ -196,6 +319,19 @@ button {
   padding: 8px 11px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.03);
+}
+
+.terminal-shell {
+  position: relative;
+  background:
+    repeating-linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.03) 0,
+      rgba(255, 255, 255, 0.03) 1px,
+      transparent 1px,
+      transparent 4px
+    ),
+    #010101;
 }
 
 .home-terminal-shell {
@@ -244,21 +380,23 @@ button {
   color: var(--rgb-blue);
 }
 
-.home-terminal-shell .app-frame {
+.terminal-shell .app-frame {
   position: relative;
   z-index: 1;
 }
 
 .terminal-hero,
-.home-terminal-shell .panel {
+.terminal-shell .panel,
+.terminal-shell .story-card,
+.terminal-shell .hero-panel {
   border-radius: 0;
-  border-color: rgba(255, 255, 255, 0.88);
+  border-color: var(--terminal-line);
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 18%),
-    rgba(0, 0, 0, 0.92);
+    var(--terminal-panel);
   box-shadow:
-    inset 0 0 0 1px rgba(255, 255, 255, 0.08),
-    0 0 0 1px rgba(255, 255, 255, 0.08),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.04),
+    0 0 0 1px rgba(255, 255, 255, 0.04),
     0 20px 50px rgba(0, 0, 0, 0.45);
 }
 
@@ -272,16 +410,16 @@ button {
   position: absolute;
   inset: auto 0 0 0;
   height: 2px;
-  background: linear-gradient(90deg, var(--rgb-red), var(--rgb-green), var(--rgb-blue));
+  background: linear-gradient(90deg, var(--terminal-line), transparent 78%);
 }
 
 .terminal-eyebrow {
-  color: #ffffff;
+  color: var(--terminal-text);
 }
 
 .terminal-prompt {
   margin: 0 0 8px;
-  color: rgba(255, 255, 255, 0.78);
+  color: var(--terminal-muted);
   font-size: clamp(1.15rem, 2vw, 1.5rem);
   letter-spacing: 0.08em;
 }
@@ -290,15 +428,12 @@ button {
   font-family: "Audiowide", cursive;
   font-size: clamp(2.8rem, 6vw, 5.1rem);
   letter-spacing: 0.16em;
-  text-shadow:
-    -2px 0 0 rgba(255, 77, 77, 0.35),
-    2px 0 0 rgba(83, 167, 255, 0.35),
-    0 0 24px rgba(255, 255, 255, 0.14);
+  text-shadow: 0 0 24px var(--terminal-glow);
 }
 
 .terminal-copy {
   max-width: 66ch;
-  color: rgba(255, 255, 255, 0.86);
+  color: var(--terminal-muted);
   font-size: clamp(1.2rem, 2vw, 1.55rem);
 }
 
@@ -314,9 +449,9 @@ button {
   align-items: center;
   min-height: 38px;
   padding: 6px 12px;
-  border: 1px solid rgba(255, 255, 255, 0.92);
-  background: #020202;
-  color: #ffffff;
+  border: 1px solid var(--terminal-line);
+  background: var(--terminal-panel);
+  color: var(--terminal-text);
   letter-spacing: 0.1em;
   font-size: 1.1rem;
 }
@@ -329,109 +464,166 @@ button {
 .terminal-divider {
   height: 1px;
   margin: 8px 0 4px;
-  background: linear-gradient(90deg, rgba(255, 255, 255, 0.92), transparent);
+  background: linear-gradient(90deg, var(--terminal-line), transparent);
 }
 
-.home-terminal-shell .hero-copy,
-.home-terminal-shell .subtle-copy,
-.home-terminal-shell .panel p,
-.home-terminal-shell .story-meta,
-.home-terminal-shell .info-grid span,
-.home-terminal-shell .ability-grid span,
-.home-terminal-shell .stat-grid span,
-.home-terminal-shell .plain-list,
-.home-terminal-shell .npc-profile p,
-.home-terminal-shell .meter-row span {
-  color: rgba(255, 255, 255, 0.76);
+.terminal-shell .hero-copy,
+.terminal-shell .subtle-copy,
+.terminal-shell .panel p,
+.terminal-shell .story-meta,
+.terminal-shell .info-grid span,
+.terminal-shell .ability-grid span,
+.terminal-shell .stat-grid span,
+.terminal-shell .plain-list,
+.terminal-shell .npc-profile p,
+.terminal-shell .meter-row span {
+  color: var(--terminal-muted);
 }
 
-.home-terminal-shell .status-pill,
-.home-terminal-shell .meta-chip,
-.home-terminal-shell .seed-chip,
-.home-terminal-shell .npc-chip,
-.home-terminal-shell .quest-badge,
-.home-terminal-shell .rarity-badge,
-.home-terminal-shell .tool-event-chip {
+.terminal-shell .status-pill,
+.terminal-shell .meta-chip,
+.terminal-shell .seed-chip,
+.terminal-shell .npc-chip,
+.terminal-shell .quest-badge,
+.terminal-shell .rarity-badge,
+.terminal-shell .tool-event-chip,
+.terminal-shell .arena-tab-button {
   border-radius: 0;
-  color: #ffffff;
-  border-color: rgba(255, 255, 255, 0.8);
-  background: #050505;
+  color: var(--terminal-text);
+  border-color: var(--terminal-line);
+  background: var(--terminal-panel-soft);
 }
 
-.home-terminal-shell .status-ready,
-.home-terminal-shell .provider-button-active,
-.home-terminal-shell .seed-chip-active,
-.home-terminal-shell .npc-chip-active,
-.home-terminal-shell .arena-tab-button-active {
-  background:
-    linear-gradient(90deg, rgba(255, 77, 77, 0.18), rgba(77, 255, 136, 0.16), rgba(83, 167, 255, 0.18)),
-    #060606;
-  border-color: #ffffff;
+.terminal-shell .status-ready,
+.terminal-shell .provider-button-active,
+.terminal-shell .seed-chip-active,
+.terminal-shell .npc-chip-active,
+.terminal-shell .arena-tab-button-active {
+  background: var(--terminal-gradient), var(--terminal-panel-soft);
+  border-color: var(--terminal-line);
 }
 
-.home-terminal-shell .text-input,
-.home-terminal-shell .text-area,
-.home-terminal-shell .provider-button,
-.home-terminal-shell .ghost-button,
-.home-terminal-shell .primary-button,
-.home-terminal-shell .class-card,
-.home-terminal-shell .runtime-panel,
-.home-terminal-shell .enemy-card,
-.home-terminal-shell .rules-card,
-.home-terminal-shell .npc-chat-shell,
-.home-terminal-shell .mini-card,
-.home-terminal-shell .inventory-card,
-.home-terminal-shell .history-card,
-.home-terminal-shell .stat-grid div,
-.home-terminal-shell .info-grid div,
-.home-terminal-shell .ability-grid div {
+.terminal-shell .text-input,
+.terminal-shell .text-area,
+.terminal-shell .provider-button,
+.terminal-shell .ghost-button,
+.terminal-shell .primary-button,
+.terminal-shell .class-card,
+.terminal-shell .runtime-panel,
+.terminal-shell .enemy-card,
+.terminal-shell .rules-card,
+.terminal-shell .npc-chat-shell,
+.terminal-shell .mini-card,
+.terminal-shell .inventory-card,
+.terminal-shell .history-card,
+.terminal-shell .stat-grid div,
+.terminal-shell .info-grid div,
+.terminal-shell .ability-grid div,
+.terminal-shell .npc-message,
+.terminal-shell .arena-scene-frame,
+.terminal-shell .art-placeholder,
+.terminal-shell .combat-cell {
   border-radius: 0;
-  border-color: rgba(255, 255, 255, 0.88);
-  background: #020202;
-  color: #ffffff;
+  border-color: var(--terminal-line);
+  background: var(--terminal-panel);
+  color: var(--terminal-text);
   box-shadow: none;
 }
 
-.home-terminal-shell .text-input,
-.home-terminal-shell .text-area {
+.terminal-shell .text-input,
+.terminal-shell .text-area {
   font-size: 1.25rem;
 }
 
-.home-terminal-shell .text-input:focus,
-.home-terminal-shell .text-area:focus {
-  border-color: #ffffff;
+.terminal-shell .text-input:focus,
+.terminal-shell .text-area:focus {
+  border-color: var(--terminal-line);
   box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.35),
-    0 0 20px rgba(255, 255, 255, 0.08);
+    0 0 0 1px var(--terminal-line-soft),
+    0 0 20px var(--terminal-glow);
 }
 
-.home-terminal-shell .ghost-button,
-.home-terminal-shell .provider-button,
-.home-terminal-shell .seed-chip {
-  background: #030303;
-  color: #ffffff;
+.terminal-shell .ghost-button,
+.terminal-shell .provider-button,
+.terminal-shell .seed-chip,
+.terminal-shell .arena-tab-button {
+  background: var(--terminal-panel-soft);
+  color: var(--terminal-text);
 }
 
-.home-terminal-shell .primary-button {
-  background: #ffffff;
+.terminal-shell .primary-button {
+  background: var(--terminal-text);
   color: #000000;
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
 
-.home-terminal-shell .field-label,
-.home-terminal-shell .eyebrow {
-  color: #ffffff;
+.terminal-shell .field-label,
+.terminal-shell .eyebrow,
+.terminal-shell .terminal-title,
+.terminal-shell .panel strong,
+.terminal-shell .story-header-panel h2,
+.terminal-shell .story-card strong,
+.terminal-shell .mini-card strong {
+  color: var(--terminal-text);
 }
 
-.home-terminal-shell .spotlight-copy {
+.terminal-shell .spotlight-copy {
   padding: 14px 16px;
-  border: 1px solid rgba(255, 255, 255, 0.88);
-  background: #020202;
-  color: #ffffff;
+  border: 1px solid var(--terminal-line);
+  background: var(--terminal-panel);
+  color: var(--terminal-text);
   font-size: clamp(1.45rem, 2.4vw, 2rem);
   line-height: 1.2;
   letter-spacing: 0.06em;
+}
+
+.terminal-shell .story-system,
+.terminal-shell .story-player,
+.terminal-shell .story-dm,
+.terminal-shell .npc-player,
+.terminal-shell .npc-npc,
+.terminal-shell .arena-side-panel,
+.terminal-shell .hero-panel,
+.terminal-shell .panel,
+.terminal-shell .story-card {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 20%),
+    var(--terminal-panel);
+}
+
+.terminal-shell .story-image,
+.terminal-shell .hero-art,
+.terminal-shell .art-thumb,
+.terminal-shell .npc-avatar,
+.terminal-shell .enemy-avatar,
+.terminal-shell .inventory-icon {
+  border-color: var(--terminal-line);
+  border-radius: 0;
+}
+
+.terminal-shell .meter-track {
+  border-color: var(--terminal-line);
+  background: #000000;
+}
+
+.terminal-shell .meter-track span {
+  background: linear-gradient(90deg, var(--terminal-text), rgba(255, 255, 255, 0.35));
+}
+
+.terminal-shell .plain-list {
+  color: var(--terminal-muted);
+}
+
+.terminal-theme-panel {
+  padding-top: 14px;
+  padding-bottom: 14px;
+}
+
+.theme-toggle-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
 }
 
 .status-ready,
@@ -587,6 +779,12 @@ button {
   gap: 10px;
 }
 
+.director-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
 .provider-button {
   flex: 1 1 180px;
 }
@@ -665,7 +863,7 @@ button {
 
 .arena-tab-bar {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
   gap: 8px;
   padding: 10px;
 }
@@ -946,6 +1144,122 @@ button {
   z-index: 2;
 }
 
+.scene-rails {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: 12px;
+  align-items: start;
+  margin-bottom: 8px;
+}
+
+.action-controls,
+.combat-toolbar {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: end;
+}
+
+.combat-grid {
+  display: grid;
+  gap: 6px;
+  margin: 14px 0;
+  overflow-x: auto;
+}
+
+.combat-cell {
+  position: relative;
+  min-height: 74px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  background: #111111;
+  color: var(--text);
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 6px;
+  box-shadow: none;
+}
+
+.combat-cell:hover {
+  border-color: var(--terminal-line);
+}
+
+.terrain-cover {
+  background: linear-gradient(135deg, rgba(216, 209, 189, 0.12), rgba(255, 255, 255, 0.02));
+}
+
+.terrain-difficult {
+  background: linear-gradient(135deg, rgba(123, 216, 143, 0.13), rgba(255, 255, 255, 0.02));
+}
+
+.terrain-hazard {
+  background: linear-gradient(135deg, rgba(255, 107, 74, 0.16), rgba(255, 255, 255, 0.02));
+}
+
+.terrain-elevation {
+  background: linear-gradient(135deg, rgba(96, 196, 255, 0.13), rgba(255, 255, 255, 0.02));
+}
+
+.terrain-objective {
+  background: var(--terminal-gradient), #111111;
+}
+
+.combat-coordinate,
+.combat-terrain {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.68rem;
+  color: var(--muted);
+}
+
+.combatants-stack {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.combat-token {
+  min-width: 26px;
+  min-height: 26px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid var(--terminal-line);
+  background: var(--terminal-panel);
+  color: var(--terminal-text);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.68rem;
+}
+
+.token-enemy {
+  border-color: #ff6b4a;
+}
+
+.token-party {
+  border-color: #7bd88f;
+}
+
+.token-player {
+  border-color: #60c4ff;
+}
+
+.toggle-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-top: 12px;
+  color: var(--terminal-muted);
+  font-family: "IBM Plex Mono", monospace;
+}
+
+.workflow-select-row {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  margin: 0;
+}
+
 .arena-side-panel {
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.035), transparent 24%),
@@ -1020,5 +1334,21 @@ button {
   .arena-art-strip .art-thumb,
   .art-thumb {
     width: calc(50% - 6px);
+  }
+
+  .scene-rails,
+  .action-controls,
+  .combat-toolbar,
+  .workflow-select-row {
+    grid-template-columns: 1fr;
+  }
+
+  .combat-cell {
+    min-width: 58px;
+  }
+
+  .music-controls,
+  .director-grid {
+    grid-template-columns: 1fr;
   }
 }

@@ -14,6 +14,14 @@ A browser-first infinite choose-your-own-adventure built with React, Vite, and W
 - Starts the player from a DnD-style class and spell baseline, while allowing the dungeon master to improvise or rewrite systems for modern, ancient, hybrid, or fully custom settings.
 - Tracks inventory items with generated SVG icons plus rarity, slot, tags, value, modifiers, and custom attributes.
 - Tracks active enemies with generated portraits and combat-facing stats.
+- Adds scene rails, action checks, pressure clocks, and blocked shortcuts so player input is treated as attempts rather than automatic success.
+- Supports AI party members who can act, fight, take damage, and stay synchronized with the dungeon master.
+- Adds a tactical combat grid with generated terrain, combatant tokens, enemy placement, and manual repositioning.
+- Lets the dungeon master choose the campaign color theme from the setup and update it when the genre pivots.
+- Lets you switch between OpenRouter and WebLLM during a running campaign.
+- Prunes long-running story and NPC chat history into durable memory entries so campaigns can keep going without bloating context.
+- Includes a looping four-track soundtrack with persistent volume and mute controls.
+- Adds a Director panel with one-click world pulses, faction turns, recaps, travel, downtime, treasure, mystery, and rest prompts.
 - Maintains a memory ledger and a mutable ruleset summary so the dungeon master has durable context.
 
 ## Accounts and history
@@ -37,6 +45,8 @@ For Google OAuth, add your Vercel production URL and local dev URL to the Supaba
 By default, generated art uses the public Pollinations image endpoint.
 
 Set `VITE_IMAGE_API_BASE` if you want to point the app at a different image generation backend that accepts prompt-in-path requests.
+
+In a running campaign, the Art Engine panel can switch to ComfyUI. Paste one or more ComfyUI workflow JSON blobs, assign each workflow to scene, environment, character, portrait, enemy, or item art, and choose the prompt node/input name the app should patch before queueing the workflow against your ComfyUI server.
 
 An example environment file is included at `.env.example`.
 

@@ -9,8 +9,28 @@ export type Rarity =
 export type QuestStatus = "active" | "completed" | "failed";
 export type StorySpeaker = "dm" | "player" | "system";
 export type NpcChatRole = "player" | "npc";
-export type ArtFocus = "scene" | "portrait" | "item" | "enemy";
+export type ArtFocus = "scene" | "portrait" | "item" | "enemy" | "character" | "environment";
 export type ProviderKind = "webllm" | "openrouter";
+export type ArtProviderKind = "pollinations" | "comfy";
+export type CampaignThemeId =
+  | "mono"
+  | "phosphor"
+  | "amber"
+  | "frost"
+  | "verdant"
+  | "ember"
+  | "neon"
+  | "royal";
+export type ActionRisk = "controlled" | "risky" | "desperate";
+export type CombatantKind = "player" | "party" | "enemy" | "npc";
+export type CombatTerrain =
+  | "floor"
+  | "cover"
+  | "difficult"
+  | "hazard"
+  | "water"
+  | "elevation"
+  | "objective";
 export type MemoryCategory =
   | "canon"
   | "objective"
@@ -148,10 +168,41 @@ export interface EnemyState {
   createdAt: number;
 }
 
+export interface PartyMemberState {
+  id: string;
+  name: string;
+  className: string;
+  role: string;
+  personality: string;
+  tactics: string;
+  loyalty: number;
+  level: number;
+  resources: CharacterResources;
+  abilityScores: AbilityScores;
+  spells: SpellDefinition[];
+  portraitPrompt: string;
+  avatarUrl: string;
+  notes: string[];
+  automated: boolean;
+  createdAt: number;
+}
+
 export interface NpcChatMessage {
   id: string;
   role: NpcChatRole;
   content: string;
+  createdAt: number;
+}
+
+export interface ActionCheck {
+  id: string;
+  ability: keyof AbilityScores;
+  risk: ActionRisk;
+  roll: number;
+  modifier: number;
+  total: number;
+  difficulty: number;
+  outcomeBand: "miss" | "mixed" | "success" | "critical";
   createdAt: number;
 }
 
@@ -169,6 +220,7 @@ export interface StoryBeat {
   createdAt: number;
   toolEvents: ToolEvent[];
   imageUrl?: string;
+  check?: ActionCheck;
 }
 
 export interface GeneratedArt {
@@ -178,6 +230,31 @@ export interface GeneratedArt {
   url: string;
   createdAt: number;
   subjectId?: string;
+}
+
+export interface ArtWorkflowConfig {
+  id: string;
+  name: string;
+  focus: ArtFocus | "all";
+  workflowJson: string;
+  promptNodeId?: string;
+  promptInputName?: string;
+  negativePromptNodeId?: string;
+  negativePromptInputName?: string;
+  seedNodeId?: string;
+  seedInputName?: string;
+  enabled: boolean;
+}
+
+export interface ArtSettings {
+  provider: ArtProviderKind;
+  pollinationsBaseUrl: string;
+  comfyServerUrl: string;
+  comfyClientId: string;
+  comfyTimeoutSeconds: number;
+  autoGenerate: boolean;
+  workflows: ArtWorkflowConfig[];
+  selectedWorkflowByFocus: Partial<Record<ArtFocus, string>>;
 }
 
 export interface EnvironmentState {
@@ -191,6 +268,70 @@ export interface EnvironmentState {
   exits: string[];
   factions: string[];
   pressureClock: string;
+}
+
+export interface CampaignThemeState {
+  id: CampaignThemeId;
+  label: string;
+  rationale: string;
+  accent: string;
+}
+
+export interface SceneControls {
+  stakes: string;
+  availableMoves: string[];
+  blockedShortcuts: string[];
+  clockName: string;
+  clockValue: number;
+  clockMax: number;
+  lastComplication: string;
+}
+
+export interface CombatCell {
+  x: number;
+  y: number;
+  terrain: CombatTerrain;
+  cover: number;
+  elevation: number;
+  hazard?: string;
+  label?: string;
+  blocksMovement?: boolean;
+  artPrompt?: string;
+}
+
+export interface CombatantPosition {
+  id: string;
+  kind: CombatantKind;
+  name: string;
+  x: number;
+  y: number;
+  initiative: number;
+  conditions: string[];
+  isActive: boolean;
+  hp?: number;
+  maxHp?: number;
+}
+
+export interface CombatState {
+  active: boolean;
+  round: number;
+  turnIndex: number;
+  width: number;
+  height: number;
+  terrainSeed: string;
+  terrainPrompt: string;
+  terrainGenerated: boolean;
+  cells: CombatCell[];
+  combatants: CombatantPosition[];
+  objective: string;
+  log: string[];
+  updatedAt: number;
+}
+
+export interface ContextSettings {
+  storyLimit: number;
+  npcChatLimit: number;
+  memoryLimit: number;
 }
 
 export interface MemoryEntry {
@@ -226,6 +367,8 @@ export interface GameState {
   selectedProvider: ProviderKind;
   selectedModelId: string;
   turnCount: number;
+  campaignTheme: CampaignThemeState;
+  sceneControls: SceneControls;
   player: PlayerState;
   environment: EnvironmentState;
   ruleset: RulesetState;
@@ -233,10 +376,15 @@ export interface GameState {
   quests: Quest[];
   npcs: NpcProfile[];
   enemies: EnemyState[];
+  party: PartyMemberState[];
+  combat: CombatState;
   npcChats: Record<string, NpcChatMessage[]>;
   story: StoryBeat[];
+  archivedStoryCount: number;
   artGallery: GeneratedArt[];
+  artSettings: ArtSettings;
   memoryLedger: MemoryEntry[];
+  contextSettings: ContextSettings;
   latestArtUrl?: string;
 }
 

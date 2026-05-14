@@ -5,7 +5,16 @@ import type {
   InitProgressReport,
   MLCEngineInterface,
 } from "@mlc-ai/web-llm";
-import { buildGeneratedArtUrl, buildItemIconUrl } from "./assets";
+import { buildGeneratedArtUrl, buildItemIconUrl, generateArtAsset } from "./assets";
+import { createCombatFromGame, createEmptyCombatState, moveCombatant, syncCombatants } from "./combat";
+import {
+  CAMPAIGN_THEME_OPTIONS,
+  createDefaultArtSettings,
+  createDefaultContextSettings,
+  createDefaultSceneControls,
+  inferCampaignTheme,
+  normalizeGameState,
+} from "./gameState";
 import { getToolCallingAppConfig } from "./models";
 import { createOpenRouterChatCompletion } from "./openrouter";
 import {
@@ -16,6 +25,7 @@ import {
 } from "../data/dnd";
 import type {
   AbilityScores,
+  CampaignThemeId,
   CharacterResources,
   EnemyState,
   GameState,
@@ -25,6 +35,7 @@ import type {
   MemoryEntry,
   NpcChatMessage,
   NpcProfile,
+  PartyMemberState,
   PlayerState,
   ProviderConfig,
   Quest,
@@ -219,6 +230,40 @@ function createDefaultPlayer(classId: string): PlayerState {
   };
 }
 
+function createPartyAbilityScores(role: string): AbilityScores {
+  const lowered = role.toLowerCase();
+  const scores = createDefaultAbilityScores(
+    /heal|priest|sage|support/.test(lowered)
+      ? "cleric"
+      : /scout|spy|sneak|ranged/.test(lowered)
+        ? "rogue"
+        : /mage|wizard|arcane|tech/.test(lowered)
+          ? "wizard"
+          : "fighter",
+  );
+
+  return scores;
+}
+
+function createPartyResources(level: number, role: string): CharacterResources {
+  const classId = /heal|priest|sage|support/.test(role.toLowerCase())
+    ? "cleric"
+    : /scout|spy|sneak|ranged/.test(role.toLowerCase())
+      ? "rogue"
+      : /mage|wizard|arcane|tech/.test(role.toLowerCase())
+        ? "wizard"
+        : "fighter";
+  const resources = createDefaultResources(classId);
+  const bonus = Math.max(0, level - 1);
+  return {
+    ...resources,
+    maxHealth: resources.maxHealth + bonus * 5,
+    health: resources.health + bonus * 5,
+    maxMana: resources.maxMana + bonus * 2,
+    mana: resources.mana + bonus * 2,
+  };
+}
+
 function createDefaultRuleset(theme: string): RulesetState {
   return {
     canonBaseline: inferBaseline(theme),
@@ -270,34 +315,69 @@ function bestMemorySlice(memoryLedger: MemoryEntry[]): MemoryEntry[] {
 }
 
 function summarizeState(state: GameState) {
+  const normalized = normalizeGameState(state);
   return {
-    playerName: state.playerName,
-    theme: state.theme,
-    startingCondition: state.startingCondition,
-    turnCount: state.turnCount,
+    playerName: normalized.playerName,
+    theme: normalized.theme,
+    startingCondition: normalized.startingCondition,
+    turnCount: normalized.turnCount,
+    campaignTheme: normalized.campaignTheme,
+    sceneControls: normalized.sceneControls,
     player: {
-      classId: state.player.classId,
-      className: state.player.className,
-      level: state.player.level,
-      xp: state.player.xp,
-      background: state.player.background,
-      ancestry: state.player.ancestry,
-      alignment: state.player.alignment,
-      abilityScores: state.player.abilityScores,
-      resources: state.player.resources,
-      classFeatures: state.player.classFeatures,
-      spells: state.player.spells.map((spell) => ({
+      classId: normalized.player.classId,
+      className: normalized.player.className,
+      level: normalized.player.level,
+      xp: normalized.player.xp,
+      background: normalized.player.background,
+      ancestry: normalized.player.ancestry,
+      alignment: normalized.player.alignment,
+      abilityScores: normalized.player.abilityScores,
+      resources: normalized.player.resources,
+      classFeatures: normalized.player.classFeatures,
+      spells: normalized.player.spells.map((spell) => ({
         name: spell.name,
         level: spell.level,
         school: spell.school,
         tags: spell.tags,
       })),
-      notes: state.player.notes,
-      customTraits: state.player.customTraits,
+      notes: normalized.player.notes,
+      customTraits: normalized.player.customTraits,
     },
-    environment: state.environment,
-    ruleset: state.ruleset,
-    inventory: state.inventory.map((item) => ({
+    environment: normalized.environment,
+    ruleset: normalized.ruleset,
+    party: normalized.party.map((member) => ({
+      id: member.id,
+      name: member.name,
+      role: member.role,
+      className: member.className,
+      level: member.level,
+      loyalty: member.loyalty,
+      automated: member.automated,
+      resources: member.resources,
+      tactics: member.tactics,
+      notes: member.notes,
+    })),
+    combat: {
+      active: normalized.combat.active,
+      round: normalized.combat.round,
+      objective: normalized.combat.objective,
+      grid: `${normalized.combat.width}x${normalized.combat.height}`,
+      terrainPrompt: normalized.combat.terrainPrompt,
+      combatants: normalized.combat.combatants,
+      recentLog: normalized.combat.log.slice(0, 5),
+    },
+    artSettings: {
+      provider: normalized.artSettings.provider,
+      autoGenerate: normalized.artSettings.autoGenerate,
+      workflows: normalized.artSettings.workflows.map((workflow) => ({
+        id: workflow.id,
+        name: workflow.name,
+        focus: workflow.focus,
+        enabled: workflow.enabled,
+      })),
+      selectedWorkflowByFocus: normalized.artSettings.selectedWorkflowByFocus,
+    },
+    inventory: normalized.inventory.map((item) => ({
       id: item.id,
       name: item.name,
       rarity: item.rarity,
@@ -307,20 +387,20 @@ function summarizeState(state: GameState) {
       modifiers: item.modifiers,
       customAttributes: item.customAttributes,
     })),
-    quests: state.quests.map((quest) => ({
+    quests: normalized.quests.map((quest) => ({
       title: quest.title,
       summary: quest.summary,
       status: quest.status,
       steps: quest.steps,
     })),
-    npcs: state.npcs.map((npc) => ({
+    npcs: normalized.npcs.map((npc) => ({
       id: npc.id,
       name: npc.name,
       archetype: npc.archetype,
       disposition: npc.disposition,
       goals: npc.goals,
     })),
-    enemies: state.enemies.map((enemy) => ({
+    enemies: normalized.enemies.map((enemy) => ({
       id: enemy.id,
       name: enemy.name,
       archetype: enemy.archetype,
@@ -330,10 +410,12 @@ function summarizeState(state: GameState) {
       abilities: enemy.abilities,
       stats: enemy.stats,
     })),
-    memoryLedger: bestMemorySlice(state.memoryLedger),
-    recentStory: state.story.slice(-6).map((beat) => ({
+    memoryLedger: bestMemorySlice(normalized.memoryLedger),
+    archivedStoryCount: normalized.archivedStoryCount,
+    recentStory: normalized.story.slice(-8).map((beat) => ({
       speaker: beat.speaker,
       content: beat.content,
+      check: beat.check,
     })),
   };
 }
@@ -358,6 +440,47 @@ const DUNGEON_MASTER_TOOLS: ChatCompletionTool[] = [
           exits: { type: "array", items: { type: "string" } },
           factions: { type: "array", items: { type: "string" } },
           pressureClock: { type: "string" },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "set_campaign_theme",
+      description:
+        "Choose the UI color theme that best fits the campaign tone. Use this early and whenever the campaign genre pivots.",
+      parameters: {
+        type: "object",
+        properties: {
+          themeId: {
+            type: "string",
+            enum: ["mono", "phosphor", "amber", "frost", "verdant", "ember", "neon", "royal"],
+          },
+          label: { type: "string" },
+          rationale: { type: "string" },
+          accent: { type: "string" },
+        },
+        required: ["themeId", "rationale"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "set_scene_controls",
+      description:
+        "Set the immediate rails for play: stakes, valid action lanes, shortcuts the player cannot simply declare, and the pressure clock.",
+      parameters: {
+        type: "object",
+        properties: {
+          stakes: { type: "string" },
+          availableMoves: { type: "array", items: { type: "string" } },
+          blockedShortcuts: { type: "array", items: { type: "string" } },
+          clockName: { type: "string" },
+          clockValue: { type: "number" },
+          clockMax: { type: "number" },
+          lastComplication: { type: "string" },
         },
       },
     },
@@ -559,6 +682,78 @@ const DUNGEON_MASTER_TOOLS: ChatCompletionTool[] = [
   {
     type: "function",
     function: {
+      name: "upsert_party_member",
+      description:
+        "Create or update an AI-controlled party member who can advise, roleplay, take actions, and fight when automated.",
+      parameters: {
+        type: "object",
+        properties: {
+          memberId: { type: "string" },
+          name: { type: "string" },
+          className: { type: "string" },
+          role: { type: "string" },
+          personality: { type: "string" },
+          tactics: { type: "string" },
+          loyalty: { type: "number" },
+          level: { type: "number" },
+          automated: { type: "boolean" },
+          portraitPrompt: { type: "string" },
+          notes: { type: "array", items: { type: "string" } },
+        },
+        required: ["name", "role", "personality", "tactics"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "update_party_member_resources",
+      description:
+        "Set or modify a party member's health, mana, stamina, armor, luck, renown, gold, level, and tactical notes.",
+      parameters: {
+        type: "object",
+        properties: {
+          memberId: { type: "string" },
+          name: { type: "string" },
+          maxHealth: { type: "number" },
+          health: { type: "number" },
+          healthDelta: { type: "number" },
+          maxMana: { type: "number" },
+          mana: { type: "number" },
+          manaDelta: { type: "number" },
+          maxStamina: { type: "number" },
+          stamina: { type: "number" },
+          staminaDelta: { type: "number" },
+          armorClass: { type: "number" },
+          initiative: { type: "number" },
+          luck: { type: "number" },
+          renown: { type: "number" },
+          gold: { type: "number" },
+          level: { type: "number" },
+          notes: { type: "array", items: { type: "string" } },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "remove_party_member",
+      description:
+        "Remove a party member when they leave, die, betray the party, or are dismissed.",
+      parameters: {
+        type: "object",
+        properties: {
+          memberId: { type: "string" },
+          name: { type: "string" },
+          reason: { type: "string" },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "spawn_enemy",
       description:
         "Generate an enemy or hostile force with stats, abilities, tags, and loot hints.",
@@ -635,6 +830,55 @@ const DUNGEON_MASTER_TOOLS: ChatCompletionTool[] = [
   {
     type: "function",
     function: {
+      name: "start_combat_grid",
+      description:
+        "Open or regenerate the tactical combat grid, synchronizing player, AI party members, and active enemies onto generated terrain.",
+      parameters: {
+        type: "object",
+        properties: {
+          objective: { type: "string" },
+          terrainPrompt: { type: "string" },
+          terrainSeed: { type: "string" },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "move_combatant",
+      description:
+        "Move the player, a party member, NPC, or enemy on the tactical grid after a movement, shove, teleport, chase, or reposition.",
+      parameters: {
+        type: "object",
+        properties: {
+          combatantId: { type: "string" },
+          name: { type: "string" },
+          x: { type: "number" },
+          y: { type: "number" },
+          reason: { type: "string" },
+        },
+        required: ["x", "y"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "end_combat_grid",
+      description:
+        "Close tactical combat when threats are defeated, flee, surrender, or the scene shifts back to exploration.",
+      parameters: {
+        type: "object",
+        properties: {
+          reason: { type: "string" },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "commit_memory",
       description:
         "Store or update a durable fact, objective, threat, relationship, system note, or scene fact in the campaign memory ledger.",
@@ -690,7 +934,10 @@ const DUNGEON_MASTER_TOOLS: ChatCompletionTool[] = [
         type: "object",
         properties: {
           prompt: { type: "string" },
-          focus: { type: "string", enum: ["scene", "portrait", "item", "enemy"] },
+          focus: {
+            type: "string",
+            enum: ["scene", "portrait", "item", "enemy", "character", "environment"],
+          },
           subjectId: { type: "string" },
         },
         required: ["prompt", "focus"],
@@ -707,11 +954,17 @@ Operating contract:
 - The tool state is the authoritative simulation state.
 - Read the state packet carefully before acting.
 - Use the environment, memory, ruleset, inventory, player, quest, NPC, enemy, and art tools to keep the simulation synchronized.
+- Choose or update the campaign color theme with set_campaign_theme so the interface matches the campaign tone.
+- Keep the scene on rails with set_scene_controls. The player can attempt bold things, but cannot declare success, create free items, erase enemies, skip locked consequences, or rewrite canon by fiat.
+- Treat the player's action as an attempt. Use the supplied check result, risk, resources, distance, grid position, known items, and NPC motives to decide success, mixed success, failure, cost, or escalation.
+- AI party members are real actors. If automated party members are present, let them advise, act, defend, cast, move, and suffer consequences without stealing the player's spotlight.
+- If active enemies or spatial tactics matter, maintain the combat grid. Move combatants when positions change and end combat when the tactical scene is over.
 - The player begins from a DnD-style class and spell baseline, but you may adapt or rewrite rules to fit modern, ancient, hybrid, surreal, or custom settings.
 - You are allowed to redesign mechanics mid-campaign if the fiction demands it. When you do, call rewrite_ruleset and record the change with commit_memory.
 - If the player gains or loses items, update inventory through tools.
 - If hostile forces appear or change, create or update enemies through tools.
 - If the player's class, powers, or stats evolve, update the player profile and resources through tools.
+- When major NPCs become companions, create them with upsert_party_member instead of leaving them only in narration.
 - Always preserve continuity and avoid contradictions with the memory ledger.
 - After all necessary tool calls, narrate crisply in 1 to 3 short paragraphs.
 - End with 2 to 4 concrete options followed by 'Or type your own action.'
@@ -759,6 +1012,8 @@ Current state:
 - Atmosphere: ${state.environment.atmosphere}
 - Active quests: ${state.quests.filter((quest) => quest.status === "active").map((quest) => quest.title).join(", ") || "none"}
 - Active enemies: ${state.enemies.map((enemy) => enemy.name).join(", ") || "none"}
+- Party members: ${state.party.map((member) => `${member.name} (${member.role})`).join(", ") || "none"}
+- Current stakes: ${state.sceneControls.stakes}
 
 Rules:
 - Speak as ${npc.name}, not as the DM.
@@ -783,6 +1038,7 @@ export function createInitialGameState(input: {
 }): GameState {
   const player = createDefaultPlayer(input.classId);
   const ruleset = createDefaultRuleset(input.theme);
+  const campaignTheme = inferCampaignTheme(input.theme);
 
   return {
     playerName: input.playerName,
@@ -791,6 +1047,8 @@ export function createInitialGameState(input: {
     selectedProvider: input.selectedProvider,
     selectedModelId: input.selectedModelId,
     turnCount: 0,
+    campaignTheme,
+    sceneControls: createDefaultSceneControls(),
     player,
     environment: {
       location: "Unknown",
@@ -809,9 +1067,13 @@ export function createInitialGameState(input: {
     quests: [],
     npcs: [],
     enemies: [],
+    party: [],
+    combat: createEmptyCombatState(),
     npcChats: {},
     story: [],
+    archivedStoryCount: 0,
     artGallery: [],
+    artSettings: createDefaultArtSettings(),
     memoryLedger: [
       {
         id: createId("memory"),
@@ -832,6 +1094,7 @@ export function createInitialGameState(input: {
         updatedAt: Date.now(),
       },
     ],
+    contextSettings: createDefaultContextSettings(),
   };
 }
 
@@ -977,10 +1240,42 @@ function findEnemy(state: GameState, args: Record<string, unknown>): EnemyState 
   return undefined;
 }
 
-function applyToolCall(
+function findPartyMember(state: GameState, args: Record<string, unknown>): PartyMemberState | undefined {
+  const byId = asString(args.memberId);
+  if (byId) {
+    return state.party.find((member) => member.id === byId);
+  }
+  const byName = asString(args.name);
+  if (byName) {
+    return state.party.find((member) => normalize(member.name) === normalize(byName));
+  }
+  return undefined;
+}
+
+function findCombatantId(state: GameState, args: Record<string, unknown>): string {
+  const byId = asString(args.combatantId);
+  if (byId) {
+    return byId;
+  }
+  const byName = asString(args.name);
+  if (!byName) {
+    return "player";
+  }
+  if (normalize(byName) === normalize(state.playerName)) {
+    return "player";
+  }
+  return (
+    state.party.find((member) => normalize(member.name) === normalize(byName))?.id ??
+    state.enemies.find((enemy) => normalize(enemy.name) === normalize(byName))?.id ??
+    state.npcs.find((npc) => normalize(npc.name) === normalize(byName))?.id ??
+    byName
+  );
+}
+
+async function applyToolCall(
   state: GameState,
   toolCall: ChatCompletionMessageToolCall,
-): ToolMutationResult {
+): Promise<ToolMutationResult> {
   const name = toolCall.function.name;
   let args: Record<string, unknown>;
 
@@ -998,6 +1293,8 @@ function applyToolCall(
       },
     };
   }
+
+  state = normalizeGameState(state);
 
   switch (name) {
     case "set_environment": {
@@ -1028,6 +1325,55 @@ function applyToolCall(
           name,
           summary: `Environment updated: ${nextEnvironment.sceneSummary}`,
           payload: nextEnvironment,
+        },
+      };
+    }
+
+    case "set_campaign_theme": {
+      const inferred = inferCampaignTheme(state.theme);
+      const themeId = asString(args.themeId, inferred.id) as CampaignThemeId;
+      const option = CAMPAIGN_THEME_OPTIONS.find((entry) => entry.id === themeId) ?? inferred;
+      const campaignTheme = {
+        id: themeId,
+        label: asString(args.label, option.label),
+        rationale: asString(args.rationale, inferred.rationale),
+        accent: asString(args.accent, option.accent),
+      };
+      return {
+        nextState: { ...state, campaignTheme },
+        toolResult: { ok: true, campaignTheme },
+        toolEvent: {
+          id: createId("tool"),
+          name,
+          summary: `Campaign theme set to ${campaignTheme.label}.`,
+          payload: campaignTheme,
+        },
+      };
+    }
+
+    case "set_scene_controls": {
+      const nextControls = {
+        ...state.sceneControls,
+        stakes: asString(args.stakes, state.sceneControls.stakes),
+        availableMoves: asStringArray(args.availableMoves, 8).length
+          ? asStringArray(args.availableMoves, 8)
+          : state.sceneControls.availableMoves,
+        blockedShortcuts: asStringArray(args.blockedShortcuts, 8).length
+          ? asStringArray(args.blockedShortcuts, 8)
+          : state.sceneControls.blockedShortcuts,
+        clockName: asString(args.clockName, state.sceneControls.clockName),
+        clockValue: clamp(asNumber(args.clockValue, state.sceneControls.clockValue), 0, 12),
+        clockMax: clamp(asNumber(args.clockMax, state.sceneControls.clockMax), 1, 12),
+        lastComplication: asString(args.lastComplication, state.sceneControls.lastComplication),
+      };
+      return {
+        nextState: { ...state, sceneControls: nextControls },
+        toolResult: { ok: true, sceneControls: nextControls },
+        toolEvent: {
+          id: createId("tool"),
+          name,
+          summary: `${nextControls.clockName} ${nextControls.clockValue}/${nextControls.clockMax}.`,
+          payload: nextControls,
         },
       };
     }
@@ -1149,11 +1495,18 @@ function applyToolCall(
         tags: tags.length ? tags : existing?.tags ?? ["misc"],
         quantity: clamp(asNumber(args.quantity, existing?.quantity ?? 1), 0, 999),
         iconPrompt: asString(args.iconPrompt, existing?.iconPrompt ?? itemName),
-        iconUrl: buildItemIconUrl({
-          name: itemName,
-          rarity,
-          tags: tags.length ? tags : existing?.tags ?? ["misc"],
-        }),
+        iconUrl: state.artSettings.autoGenerate
+          ? await generateArtAsset(
+              asString(args.iconPrompt, existing?.iconPrompt ?? itemName),
+              existing?.id ?? itemName,
+              "item",
+              state.artSettings,
+            )
+          : buildItemIconUrl({
+              name: itemName,
+              rarity,
+              tags: tags.length ? tags : existing?.tags ?? ["misc"],
+            }),
         slot: asString(args.slot, existing?.slot ?? "pack"),
         weight: Math.max(0, asNumber(args.weight, existing?.weight ?? 1)),
         value: Math.max(0, asNumber(args.value, existing?.value ?? 0)),
@@ -1269,7 +1622,9 @@ function applyToolCall(
         goals: asStringArray(args.goals, 6).length ? asStringArray(args.goals, 6) : existing?.goals ?? [],
         secrets: asStringArray(args.secrets, 6).length ? asStringArray(args.secrets, 6) : existing?.secrets ?? [],
         avatarPrompt,
-        avatarUrl: buildGeneratedArtUrl(avatarPrompt, npcId, "portrait"),
+        avatarUrl: state.artSettings.autoGenerate
+          ? await generateArtAsset(avatarPrompt, npcId, "portrait", state.artSettings)
+          : buildGeneratedArtUrl(avatarPrompt, npcId, "portrait", state.artSettings),
         createdAt: existing?.createdAt ?? Date.now(),
       };
       const npcs = existing
@@ -1298,6 +1653,125 @@ function applyToolCall(
       };
     }
 
+    case "upsert_party_member": {
+      const memberName = asString(args.name, "New Companion");
+      const existing = findPartyMember(state, args) ??
+        state.party.find((member) => normalize(member.name) === normalize(memberName));
+      const memberId = existing?.id ?? createId("party");
+      const level = clamp(asNumber(args.level, existing?.level ?? state.player.level), 1, 30);
+      const role = asString(args.role, existing?.role ?? "companion");
+      const portraitPrompt = asString(args.portraitPrompt, existing?.portraitPrompt ?? memberName);
+      const member: PartyMemberState = {
+        id: memberId,
+        name: memberName,
+        className: asString(args.className, existing?.className ?? role),
+        role,
+        personality: asString(args.personality, existing?.personality ?? "steady"),
+        tactics: asString(args.tactics, existing?.tactics ?? "Protect the player and exploit openings."),
+        loyalty: clamp(asNumber(args.loyalty, existing?.loyalty ?? 55), 0, 100),
+        level,
+        resources: existing?.resources ?? createPartyResources(level, role),
+        abilityScores: existing?.abilityScores ?? createPartyAbilityScores(role),
+        spells: existing?.spells ?? [],
+        portraitPrompt,
+        avatarUrl: state.artSettings.autoGenerate
+          ? await generateArtAsset(portraitPrompt, memberId, "character", state.artSettings)
+          : buildGeneratedArtUrl(portraitPrompt, memberId, "character", state.artSettings),
+        notes: asStringArray(args.notes, 10).length ? asStringArray(args.notes, 10) : existing?.notes ?? [],
+        automated: typeof args.automated === "boolean" ? args.automated : existing?.automated ?? true,
+        createdAt: existing?.createdAt ?? Date.now(),
+      };
+      const party = existing
+        ? state.party.map((entry) => (entry.id === existing.id ? member : entry))
+        : [member, ...state.party].slice(0, 5);
+      const nextState = { ...state, party };
+      return {
+        nextState: {
+          ...nextState,
+          combat: nextState.combat.active ? syncCombatants(nextState) : nextState.combat,
+        },
+        toolResult: { ok: true, member },
+        toolEvent: {
+          id: createId("tool"),
+          name,
+          summary: `Party member synchronized: ${member.name}.`,
+          payload: { memberId: member.id, role: member.role, automated: member.automated },
+        },
+      };
+    }
+
+    case "update_party_member_resources": {
+      const existing = findPartyMember(state, args);
+      if (!existing) {
+        return {
+          nextState: state,
+          toolResult: { ok: false, error: "Party member not found." },
+          toolEvent: {
+            id: createId("tool"),
+            name,
+            summary: "Attempted to update a missing party member.",
+            payload: {},
+          },
+        };
+      }
+      const updatedMember: PartyMemberState = {
+        ...existing,
+        level: clamp(asNumber(args.level, existing.level), 1, 30),
+        resources: patchResources(existing.resources, args),
+        notes: asStringArray(args.notes, 10).length ? asStringArray(args.notes, 10) : existing.notes,
+      };
+      const nextState = {
+        ...state,
+        party: state.party.map((member) => (member.id === existing.id ? updatedMember : member)),
+      };
+      return {
+        nextState: {
+          ...nextState,
+          combat: nextState.combat.active ? syncCombatants(nextState) : nextState.combat,
+        },
+        toolResult: { ok: true, member: updatedMember },
+        toolEvent: {
+          id: createId("tool"),
+          name,
+          summary: `${updatedMember.name} resources updated.`,
+          payload: { memberId: updatedMember.id, health: updatedMember.resources.health },
+        },
+      };
+    }
+
+    case "remove_party_member": {
+      const existing = findPartyMember(state, args);
+      if (!existing) {
+        return {
+          nextState: state,
+          toolResult: { ok: false, error: "Party member not found." },
+          toolEvent: {
+            id: createId("tool"),
+            name,
+            summary: "Attempted to remove a missing party member.",
+            payload: {},
+          },
+        };
+      }
+      const nextState = {
+        ...state,
+        party: state.party.filter((member) => member.id !== existing.id),
+      };
+      return {
+        nextState: {
+          ...nextState,
+          combat: nextState.combat.active ? syncCombatants(nextState) : nextState.combat,
+        },
+        toolResult: { ok: true, memberId: existing.id, reason: asString(args.reason) },
+        toolEvent: {
+          id: createId("tool"),
+          name,
+          summary: `${existing.name} left the party.`,
+          payload: { memberId: existing.id, reason: asString(args.reason) },
+        },
+      };
+    }
+
     case "spawn_enemy": {
       const enemyId = createId("enemy");
       const portraitPrompt = asString(args.portraitPrompt, asString(args.name, "Hostile force"));
@@ -1312,7 +1786,9 @@ function applyToolCall(
         abilities: asStringArray(args.abilities, 8),
         lootHints: asStringArray(args.lootHints, 8),
         portraitPrompt,
-        artUrl: buildGeneratedArtUrl(portraitPrompt, enemyId, "enemy"),
+        artUrl: state.artSettings.autoGenerate
+          ? await generateArtAsset(portraitPrompt, enemyId, "enemy", state.artSettings)
+          : buildGeneratedArtUrl(portraitPrompt, enemyId, "enemy", state.artSettings),
         stats: {
           maxHealth,
           health: clamp(asNumber(args.health, maxHealth), 0, maxHealth),
@@ -1326,8 +1802,12 @@ function applyToolCall(
         customAttributes: asObject(args.customAttributes),
         createdAt: Date.now(),
       };
+      const nextState = { ...state, enemies: [nextEnemy, ...state.enemies] };
       return {
-        nextState: { ...state, enemies: [nextEnemy, ...state.enemies] },
+        nextState: {
+          ...nextState,
+          combat: nextState.combat.active ? syncCombatants(nextState) : nextState.combat,
+        },
         toolResult: { ok: true, enemy: nextEnemy },
         toolEvent: {
           id: createId("tool"),
@@ -1364,7 +1844,12 @@ function applyToolCall(
         lootHints: asStringArray(args.lootHints, 8).length ? asStringArray(args.lootHints, 8) : existing.lootHints,
         portraitPrompt: asString(args.portraitPrompt, existing.portraitPrompt),
         artUrl: asString(args.portraitPrompt)
-          ? buildGeneratedArtUrl(asString(args.portraitPrompt), existing.id, "enemy")
+          ? await generateArtAsset(
+              asString(args.portraitPrompt),
+              existing.id,
+              "enemy",
+              state.artSettings,
+            )
           : existing.artUrl,
         stats: {
           maxHealth: nextMaxHealth,
@@ -1381,10 +1866,14 @@ function applyToolCall(
           ...asObject(args.customAttributes),
         },
       };
+      const nextState = {
+        ...state,
+        enemies: state.enemies.map((enemy) => (enemy.id === existing.id ? updatedEnemy : enemy)),
+      };
       return {
         nextState: {
-          ...state,
-          enemies: state.enemies.map((enemy) => (enemy.id === existing.id ? updatedEnemy : enemy)),
+          ...nextState,
+          combat: nextState.combat.active ? syncCombatants(nextState) : nextState.combat,
         },
         toolResult: { ok: true, enemy: updatedEnemy },
         toolEvent: {
@@ -1410,10 +1899,14 @@ function applyToolCall(
           },
         };
       }
+      const nextState = {
+        ...state,
+        enemies: state.enemies.filter((enemy) => enemy.id !== existing.id),
+      };
       return {
         nextState: {
-          ...state,
-          enemies: state.enemies.filter((enemy) => enemy.id !== existing.id),
+          ...nextState,
+          combat: nextState.combat.active ? syncCombatants(nextState) : nextState.combat,
         },
         toolResult: { ok: true, enemyId: existing.id, reason: asString(args.reason) },
         toolEvent: {
@@ -1421,6 +1914,70 @@ function applyToolCall(
           name,
           summary: `Enemy removed: ${existing.name}.`,
           payload: { enemyId: existing.id, reason: asString(args.reason) },
+        },
+      };
+    }
+
+    case "start_combat_grid": {
+      const terrainSeed = asString(args.terrainSeed, createId("terrain"));
+      const combat = {
+        ...createCombatFromGame(state, terrainSeed),
+        objective: asString(args.objective, state.environment.pressureClock),
+        terrainPrompt: asString(
+          args.terrainPrompt,
+          `${state.environment.location}: ${state.environment.sceneSummary}`,
+        ),
+      };
+      return {
+        nextState: { ...state, combat },
+        toolResult: { ok: true, combat },
+        toolEvent: {
+          id: createId("tool"),
+          name,
+          summary: `Combat grid opened: ${combat.width}x${combat.height}.`,
+          payload: { objective: combat.objective, combatants: combat.combatants.length },
+        },
+      };
+    }
+
+    case "move_combatant": {
+      const combatantId = findCombatantId(state, args);
+      const combat = moveCombatant(
+        state.combat.active ? state.combat : createCombatFromGame(state),
+        combatantId,
+        asNumber(args.x, 0),
+        asNumber(args.y, 0),
+        asString(args.reason, "DM reposition"),
+      );
+      return {
+        nextState: { ...state, combat },
+        toolResult: { ok: true, combatantId, combat },
+        toolEvent: {
+          id: createId("tool"),
+          name,
+          summary: `${combatantId} moved on the grid.`,
+          payload: { combatantId, x: asNumber(args.x, 0), y: asNumber(args.y, 0) },
+        },
+      };
+    }
+
+    case "end_combat_grid": {
+      const combat = {
+        ...state.combat,
+        active: false,
+        round: 0,
+        turnIndex: 0,
+        log: [asString(args.reason, "Combat ended."), ...state.combat.log].slice(0, 16),
+        updatedAt: Date.now(),
+      };
+      return {
+        nextState: { ...state, combat },
+        toolResult: { ok: true, combat },
+        toolEvent: {
+          id: createId("tool"),
+          name,
+          summary: "Combat grid closed.",
+          payload: { reason: asString(args.reason) },
         },
       };
     }
@@ -1501,11 +2058,14 @@ function applyToolCall(
       const focus = asString(args.focus, "scene") as GeneratedArt["focus"];
       const prompt = asString(args.prompt, state.environment.sceneSummary);
       const subjectId = asString(args.subjectId) || undefined;
+      const seed = subjectId ?? createId("seed");
       const art: GeneratedArt = {
         id: createId("art"),
         prompt,
         focus,
-        url: buildGeneratedArtUrl(prompt, subjectId ?? createId("seed"), focus),
+        url: state.artSettings.autoGenerate
+          ? await generateArtAsset(prompt, seed, focus, state.artSettings)
+          : buildGeneratedArtUrl(prompt, seed, focus, state.artSettings),
         createdAt: Date.now(),
         subjectId,
       };
@@ -1549,7 +2109,7 @@ export async function runDungeonMasterTurn(
   }
 
   let workingState: GameState = {
-    ...currentState,
+    ...normalizeGameState(currentState),
     turnCount: currentState.turnCount + 1,
   };
   const messages = buildDungeonMasterMessages(workingState, playerAction);
@@ -1572,7 +2132,7 @@ export async function runDungeonMasterTurn(
       });
 
       for (const toolCall of assistantMessage.tool_calls) {
-        const mutation = applyToolCall(workingState, toolCall);
+        const mutation = await applyToolCall(workingState, toolCall);
         workingState = mutation.nextState;
         toolEvents.push(mutation.toolEvent);
         messages.push({
@@ -1614,6 +2174,7 @@ export async function runNpcTurn(
     throw new Error("Engine has not been initialized.");
   }
 
+  state = normalizeGameState(state);
   const npc = state.npcs.find((entry) => entry.id === npcId);
   if (!npc) {
     throw new Error("NPC not found.");
