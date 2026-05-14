@@ -74,11 +74,13 @@ const ABILITY_LABELS: Array<{ id: AbilityKey; label: string }> = [
   { id: "charisma", label: "Sway" },
 ];
 const MUSIC_TRACKS = [
-  { title: "Glass Harbors", src: "/music/Glass%20Harbors.mp3" },
-  { title: "Pearl Strings", src: "/music/Pearl%20Strings.mp3" },
-  { title: "Tin Cup Radiance", src: "/music/Tin%20Cup%20Radiance.mp3" },
-  { title: "Velvet Dungeon", src: "/music/Velvet%20Dungeon.mp3" },
+  "/music/Glass%20Harbors.mp3",
+  "/music/Pearl%20Strings.mp3",
+  "/music/Tin%20Cup%20Radiance.mp3",
+  "/music/Velvet%20Dungeon.mp3",
 ];
+const DEFAULT_LOCAL_ENDPOINT = "http://127.0.0.1:11434/v1";
+const DEFAULT_LOCAL_MODEL = "llama3.1";
 const DIRECTOR_ACTIONS: Array<{ label: string; prompt: string; tab: GameTab }> = [
   {
     label: "World Pulse",
@@ -251,6 +253,16 @@ function buildCampaignTitle(game: GameState): string {
   return `${game.playerName} · ${headline} · Turn ${game.turnCount}`;
 }
 
+function formatProviderLabel(game: Pick<GameState, "selectedProvider" | "selectedModelId" | "selectedEndpoint">): string {
+  if (game.selectedProvider === "openrouter") {
+    return `OpenRouter / ${game.selectedModelId}`;
+  }
+  if (game.selectedProvider === "local") {
+    return `Local / ${game.selectedModelId}`;
+  }
+  return `WebLLM / ${game.selectedModelId}`;
+}
+
 function isCompatibleSession(value: unknown): value is SavedSession {
   if (!value || typeof value !== "object") {
     return false;
@@ -280,6 +292,9 @@ function App() {
   const [webllmCatalogStatus, setWebllmCatalogStatus] = useState<AsyncStatus>("idle");
   const [selectedModelId, setSelectedModelId] = useState("");
   const [selectedOpenRouterModel, setSelectedOpenRouterModel] = useState(DEFAULT_OPENROUTER_MODEL);
+  const [selectedLocalEndpoint, setSelectedLocalEndpoint] = useState(DEFAULT_LOCAL_ENDPOINT);
+  const [selectedLocalModel, setSelectedLocalModel] = useState(DEFAULT_LOCAL_MODEL);
+  const [selectedLocalApiKey, setSelectedLocalApiKey] = useState("");
   const [selectedClassId, setSelectedClassId] = useState(DND_CLASSES[0]?.id ?? "fighter");
   const [openRouterKeyInput, setOpenRouterKeyInput] = useState("");
   const [openRouterKeyStored, setOpenRouterKeyStored] = useState(false);
@@ -290,12 +305,14 @@ function App() {
   const [selectedActionRisk, setSelectedActionRisk] = useState<ActionRisk>("risky");
   const [selectedActionAbility, setSelectedActionAbility] = useState<AbilityKey>("wisdom");
   const [selectedCombatantId, setSelectedCombatantId] = useState("player");
+  const [showSettings, setShowSettings] = useState(false);
+  const [focusMode, setFocusMode] = useState(false);
   const [npcInput, setNpcInput] = useState("");
   const [busyLabel, setBusyLabel] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [engineStatus, setEngineStatus] = useState<EngineStatus>({
     phase: "idle",
-    text: "Choose local WebLLM or OpenRouter before starting.",
+    text: "Choose OpenRouter, browser WebLLM, or a local Ollama/vLLM endpoint before starting.",
   });
   const [authMode, setAuthMode] = useState<AuthMode>("signup");
   const [accountUser, setAccountUser] = useState<AccountUser | null>(null);
@@ -525,10 +542,16 @@ function App() {
           ? normalizedGame.selectedModelId
           : DEFAULT_OPENROUTER_MODEL,
       );
+      setSelectedLocalModel(
+        normalizedGame.selectedProvider === "local"
+          ? normalizedGame.selectedModelId
+          : DEFAULT_LOCAL_MODEL,
+      );
+      setSelectedLocalEndpoint(normalizedGame.selectedEndpoint ?? DEFAULT_LOCAL_ENDPOINT);
       setSelectedClassId(normalizedGame.player.classId);
       setEngineStatus({
         phase: "idle",
-        text: `Saved campaign found for ${normalizedGame.playerName}. Resume with ${normalizedGame.selectedProvider === "openrouter" ? `OpenRouter / ${normalizedGame.selectedModelId}` : `WebLLM / ${normalizedGame.selectedModelId}`}.`,
+        text: `Saved campaign found for ${normalizedGame.playerName}. Resume with ${formatProviderLabel(normalizedGame)}.`,
       });
     } catch {
       localStorage.removeItem(STORAGE_KEY);
@@ -601,6 +624,17 @@ function App() {
       };
     }
 
+    if (kind === "local") {
+      const endpoint = selectedLocalEndpoint.trim() || DEFAULT_LOCAL_ENDPOINT;
+      const modelId = selectedLocalModel.trim() || DEFAULT_LOCAL_MODEL;
+      return {
+        kind,
+        endpoint,
+        modelId,
+        apiKey: selectedLocalApiKey.trim() || undefined,
+      };
+    }
+
     const modelId = selectedModelId || (await getDefaultModelId());
     if (!selectedModelId && modelId) {
       setSelectedModelId(modelId);
@@ -617,6 +651,14 @@ function App() {
       setEngineStatus({
         phase: "ready",
         text: `${provider.modelId} is ready through OpenRouter. The API key is stored encrypted on this device.`,
+      });
+      return;
+    }
+
+    if (provider.kind === "local") {
+      setEngineStatus({
+        phase: "ready",
+        text: `${provider.modelId} is ready through ${provider.endpoint}.`,
       });
       return;
     }
@@ -658,7 +700,7 @@ function App() {
     clearEncryptedOpenRouterKey();
     setOpenRouterKeyStored(false);
     if (selectedProvider === "openrouter") {
-      setSelectedProvider("webllm");
+      setSelectedProvider("local");
     }
     setEngineStatus({
       phase: "idle",
@@ -745,6 +787,12 @@ function App() {
         ? normalizedGame.selectedModelId
         : DEFAULT_OPENROUTER_MODEL,
     );
+    setSelectedLocalModel(
+      normalizedGame.selectedProvider === "local"
+        ? normalizedGame.selectedModelId
+        : DEFAULT_LOCAL_MODEL,
+    );
+    setSelectedLocalEndpoint(normalizedGame.selectedEndpoint ?? DEFAULT_LOCAL_ENDPOINT);
     setCloudSaveId(save.id);
     setActiveTab("surroundings");
     setEngineStatus({
@@ -792,6 +840,7 @@ function App() {
         startingCondition,
         selectedProvider: provider.kind,
         selectedModelId: provider.modelId,
+        selectedEndpoint: provider.endpoint,
         classId: selectedClassId,
       });
 
@@ -802,7 +851,7 @@ function App() {
           createStoryBeat("system", `Starting class: ${baseGame.player.className}`),
           createStoryBeat(
             "system",
-            `Runtime provider: ${provider.kind === "openrouter" ? `OpenRouter / ${provider.modelId}` : `WebLLM / ${provider.modelId}`}`,
+            `Runtime provider: ${formatProviderLabel({ selectedProvider: provider.kind, selectedModelId: provider.modelId, selectedEndpoint: provider.endpoint })}`,
           ),
         ],
       };
@@ -949,12 +998,14 @@ function App() {
     setActiveTab("surroundings");
     setActionInput("");
     setSelectedCombatantId("player");
+    setShowSettings(false);
+    setFocusMode(false);
     setNpcInput("");
     setBusyLabel("");
     setErrorMessage("");
     setEngineStatus({
       phase: "idle",
-      text: "Choose local WebLLM or OpenRouter before starting.",
+      text: "Choose OpenRouter, browser WebLLM, or a local Ollama/vLLM endpoint before starting.",
     });
   }
 
@@ -980,16 +1031,6 @@ function App() {
     }
   }
 
-  function handleNextTrack() {
-    setMusicTrackIndex((current) => (current + 1) % MUSIC_TRACKS.length);
-    setMusicPlaying(true);
-  }
-
-  function handlePreviousTrack() {
-    setMusicTrackIndex((current) => (current - 1 + MUSIC_TRACKS.length) % MUSIC_TRACKS.length);
-    setMusicPlaying(true);
-  }
-
   function handleTrackEnded() {
     setMusicTrackIndex((current) => (current + 1) % MUSIC_TRACKS.length);
     setMusicPlaying(true);
@@ -1009,11 +1050,12 @@ function App() {
         ...game,
         selectedProvider: provider.kind,
         selectedModelId: provider.modelId,
+        selectedEndpoint: provider.endpoint,
         story: [
           ...game.story,
           createStoryBeat(
             "system",
-            `Runtime switched to ${provider.kind === "openrouter" ? `OpenRouter / ${provider.modelId}` : `WebLLM / ${provider.modelId}`}.`,
+            `Runtime switched to ${formatProviderLabel({ selectedProvider: provider.kind, selectedModelId: provider.modelId, selectedEndpoint: provider.endpoint })}.`,
           ),
         ],
       });
@@ -1139,9 +1181,13 @@ function App() {
   const activeMusicTrack = MUSIC_TRACKS[musicTrackIndex] ?? MUSIC_TRACKS[0];
   const usingCustomTheme = customTheme.trim().length > 0;
   const selectedClass = DND_CLASSES.find((entry) => entry.id === selectedClassId) ?? DND_CLASSES[0];
-  const startDisabled = Boolean(busyLabel) || (selectedProvider === "webllm"
-    ? webllmCatalogStatus === "loading" || !selectedModelId
-    : !openRouterKeyStored || !selectedOpenRouterModel.trim());
+  const startDisabled = Boolean(busyLabel) || (
+    selectedProvider === "webllm"
+      ? webllmCatalogStatus === "loading" || !selectedModelId
+      : selectedProvider === "local"
+        ? !selectedLocalEndpoint.trim() || !selectedLocalModel.trim()
+        : !openRouterKeyStored || !selectedOpenRouterModel.trim()
+  );
   const latestSceneArt =
     game?.artGallery.slice().reverse().find((art) => art.focus === "scene")?.url ??
     game?.latestArtUrl;
@@ -1156,10 +1202,10 @@ function App() {
   ];
 
   return (
-    <div className={`app-shell arena-shell terminal-shell theme-${game ? activeTheme.id : terminalTheme} ${game ? "in-game-shell" : "home-terminal-shell"}`}>
+    <div className={`app-shell arena-shell terminal-shell theme-${game ? activeTheme.id : terminalTheme} ${game ? "in-game-shell" : "home-terminal-shell"} ${focusMode ? "focus-mode" : ""}`}>
       <audio
         ref={audioRef}
-        src={activeMusicTrack.src}
+        src={activeMusicTrack}
         preload="metadata"
         onEnded={handleTrackEnded}
         onError={() => setMusicError("Music file could not be loaded.")}
@@ -1174,12 +1220,26 @@ function App() {
       <main className="app-frame">
         <header className={`hero-panel arena-hero ${game ? "" : "terminal-hero"}`}>
           <div>
-            <p className="eyebrow terminal-eyebrow">Infinite Adventure Director</p>
-            {!game ? <p className="terminal-prompt">C:\&gt; boot infinite_game.exe --interactive</p> : null}
-            <h1 className={!game ? "terminal-title" : undefined}>The Infinite Game</h1>
-            <p className={`hero-copy ${!game ? "terminal-copy" : ""}`}>
-              An old-RPG command deck for an endless campaign. Explore through a live dungeon master, track your pack and known actors, and keep the current surroundings in view like a classic first-person CRPG.
-            </p>
+            {!game ? (
+              <>
+                <p className="eyebrow terminal-eyebrow">Infinite Adventure Director</p>
+                <p className="terminal-prompt">C:\&gt; boot infinite_game.exe --interactive</p>
+                <h1 className="terminal-title">The Infinite Game</h1>
+                <p className="hero-copy terminal-copy">
+                  A live dungeon master, durable world state, tactical scenes, and an endless campaign loop.
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="eyebrow terminal-eyebrow">Live Campaign</p>
+                <h1 className="compact-title">{game.environment.location}</h1>
+                <div className="terminal-meta-row">
+                  <span className="terminal-box">TURN {game.turnCount}</span>
+                  <span className="terminal-box">HP {game.player.resources.health}/{game.player.resources.maxHealth}</span>
+                  <span className="terminal-box">{game.sceneControls.clockName} {game.sceneControls.clockValue}/{game.sceneControls.clockMax}</span>
+                </div>
+              </>
+            )}
             {!game ? (
               <div className="terminal-meta-row">
                 <span className="terminal-box">STATUS: READY</span>
@@ -1189,7 +1249,7 @@ function App() {
             ) : null}
           </div>
           <div className="status-stack arena-status-stack">
-            <div className={`status-pill status-${engineStatus.phase}`}>{engineStatus.text}</div>
+            {!game || showSettings ? <div className={`status-pill status-${engineStatus.phase}`}>{engineStatus.text}</div> : null}
             {isMobile ? (
               <div className="status-pill status-busy">
                 Mobile device detected. OpenRouter is recommended for smoother play.
@@ -1202,27 +1262,42 @@ function App() {
             {cloudError ? <div className="status-pill status-error">{cloudError}</div> : null}
             {errorMessage ? <div className="status-pill status-error">{errorMessage}</div> : null}
             {musicError ? <div className="status-pill status-error">{musicError}</div> : null}
-            <div className="music-strip">
-              <div>
-                <p className="eyebrow">Music</p>
-                <strong>{activeMusicTrack.title}</strong>
+            {game ? (
+              <div className="top-actions">
+                <button
+                  type="button"
+                  className="ghost-button"
+                  onClick={() => {
+                    setFocusMode((current) => !current);
+                    setShowSettings(false);
+                  }}
+                >
+                  {focusMode ? "Exit Focus" : "Focus"}
+                </button>
+                {!focusMode ? (
+                  <button type="button" className="ghost-button" onClick={() => setShowSettings((current) => !current)}>
+                    {showSettings ? "Close Settings" : "Settings"}
+                  </button>
+                ) : null}
               </div>
+            ) : null}
+            <div className="music-strip">
               <div className="music-controls">
-                <button type="button" className="ghost-button icon-button" onClick={handlePreviousTrack} title="Previous track">
-                  {"<<"}
-                </button>
-                <button type="button" className="primary-button icon-button" onClick={() => void handleToggleMusic()}>
-                  {musicPlaying ? "Pause" : "Play"}
-                </button>
-                <button type="button" className="ghost-button icon-button" onClick={handleNextTrack} title="Next track">
-                  {">>"}
+                <button
+                  type="button"
+                  className="ghost-button icon-button"
+                  onClick={() => void handleToggleMusic()}
+                  title="Toggle background music"
+                >
+                  {musicPlaying ? "Audio On" : "Audio"}
                 </button>
                 <button
                   type="button"
                   className="ghost-button icon-button"
                   onClick={() => setMusicMuted((current) => !current)}
+                  title="Mute music"
                 >
-                  {musicMuted ? "Unmute" : "Mute"}
+                  {musicMuted ? "Muted" : "Mute"}
                 </button>
               </div>
               <input
@@ -1294,6 +1369,13 @@ function App() {
                 >
                   OpenRouter
                 </button>
+                <button
+                  type="button"
+                  className={`provider-button ${selectedProvider === "local" ? "provider-button-active" : ""}`}
+                  onClick={() => setSelectedProvider("local")}
+                >
+                  Ollama / vLLM
+                </button>
               </div>
 
               {selectedProvider === "webllm" ? (
@@ -1331,6 +1413,40 @@ function App() {
                   <p className="subtle-copy">
                     Local mode keeps the model in-browser and now defers the WebLLM bundle until you explicitly choose this provider.
                   </p>
+                </>
+              ) : selectedProvider === "local" ? (
+                <>
+                  <label className="field-label" htmlFor="local-endpoint">
+                    Local endpoint
+                  </label>
+                  <input
+                    id="local-endpoint"
+                    className="text-input"
+                    value={selectedLocalEndpoint}
+                    onChange={(event) => setSelectedLocalEndpoint(event.target.value)}
+                    placeholder="http://127.0.0.1:11434/v1"
+                  />
+                  <label className="field-label" htmlFor="local-model">
+                    Local model
+                  </label>
+                  <input
+                    id="local-model"
+                    className="text-input"
+                    value={selectedLocalModel}
+                    onChange={(event) => setSelectedLocalModel(event.target.value)}
+                    placeholder="llama3.1"
+                  />
+                  <label className="field-label" htmlFor="local-api-key">
+                    API key
+                  </label>
+                  <input
+                    id="local-api-key"
+                    className="text-input"
+                    type="password"
+                    value={selectedLocalApiKey}
+                    onChange={(event) => setSelectedLocalApiKey(event.target.value)}
+                    placeholder="optional for vLLM gateways"
+                  />
                 </>
               ) : (
                 <>
@@ -1494,7 +1610,7 @@ function App() {
                           <span className="meta-chip">{formatCalendarTimestamp(save.updatedAt)}</span>
                         </div>
                         <p>
-                          {save.game.environment.location} · {save.game.selectedProvider === "openrouter" ? "OpenRouter" : "WebLLM"} · Turn {save.game.turnCount}
+                          {save.game.environment.location} - {save.game.selectedProvider === "local" ? "Local" : save.game.selectedProvider === "openrouter" ? "OpenRouter" : "WebLLM"} - Turn {save.game.turnCount}
                         </p>
                         <div className="button-row">
                           <button type="button" className="ghost-button" onClick={() => void handleLoadCloudSave(save)}>
@@ -1569,7 +1685,7 @@ function App() {
                   <p className="eyebrow">Campaign Frame</p>
                   <h2>{game.theme}</h2>
                   <p className="subtle-copy">
-                    {game.environment.location} - {game.environment.atmosphere} - {game.player.className} - {activeTheme.label} - Turn {game.turnCount}
+                    {game.player.className} - {activeTheme.label} - Turn {game.turnCount}
                   </p>
                 </div>
                 <button type="button" className="ghost-button" onClick={handleReset}>
@@ -1619,7 +1735,7 @@ function App() {
                               <span className="tool-event-chip">{beat.check.outcomeBand}</span>
                             </div>
                           ) : null}
-                          {beat.imageUrl ? (
+                          {game.artSettings.autoGenerate && beat.imageUrl ? (
                             <img className="story-image" src={beat.imageUrl} alt="Generated scene art" />
                           ) : null}
                           {beat.toolEvents.length > 0 ? (
@@ -1643,19 +1759,15 @@ function App() {
                       <p className="eyebrow">Surroundings</p>
                       <span className="meta-chip">{game.environment.timeOfDay}</span>
                     </div>
-                    <div className="arena-scene-frame">
-                      {latestSceneArt ? (
+                    {game.artSettings.autoGenerate && latestSceneArt ? (
+                      <div className="arena-scene-frame">
                         <img
                           className="hero-art arena-scene-image"
                           src={latestSceneArt}
                           alt={`Surroundings near ${game.environment.location}`}
                         />
-                      ) : (
-                        <div className="art-placeholder arena-placeholder">
-                          The dungeon master has not painted the current surroundings yet.
-                        </div>
-                      )}
-                    </div>
+                      </div>
+                    ) : null}
                     <div className="arena-surroundings-grid">
                       <article className="mini-card arena-panel-card">
                         <div className="mini-card-header">
@@ -1804,8 +1916,10 @@ function App() {
                               <div className="art-placeholder arena-placeholder">No active enemies.</div>
                             ) : (
                               game.enemies.map((enemy) => (
-                                <article key={enemy.id} className="enemy-card arena-panel-card">
-                                  <img src={enemy.artUrl} alt={enemy.name} className="enemy-avatar" />
+                                <article key={enemy.id} className={`enemy-card arena-panel-card ${game.artSettings.autoGenerate ? "" : "no-art-card"}`}>
+                                  {game.artSettings.autoGenerate ? (
+                                    <img src={enemy.artUrl} alt={enemy.name} className="enemy-avatar" />
+                                  ) : null}
                                   <div>
                                     <div className="mini-card-header">
                                       <strong>{enemy.name}</strong>
@@ -1843,8 +1957,10 @@ function App() {
                         <div className="art-placeholder arena-placeholder">Your pack is empty.</div>
                       ) : (
                         game.inventory.map((item) => (
-                          <article key={item.id} className="inventory-card arena-panel-card">
-                            <img src={item.iconUrl} alt={item.name} className="inventory-icon" />
+                          <article key={item.id} className={`inventory-card arena-panel-card ${game.artSettings.autoGenerate ? "" : "no-art-card"}`}>
+                            {game.artSettings.autoGenerate ? (
+                              <img src={item.iconUrl} alt={item.name} className="inventory-icon" />
+                            ) : null}
                             <div>
                               <div className="mini-card-header">
                                 <strong>{item.name}</strong>
@@ -1891,8 +2007,10 @@ function App() {
                             </div>
                           ) : (
                             game.party.map((member) => (
-                              <article key={member.id} className="enemy-card arena-panel-card">
-                                <img src={member.avatarUrl} alt={member.name} className="enemy-avatar" />
+                              <article key={member.id} className={`enemy-card arena-panel-card ${game.artSettings.autoGenerate ? "" : "no-art-card"}`}>
+                                {game.artSettings.autoGenerate ? (
+                                  <img src={member.avatarUrl} alt={member.name} className="enemy-avatar" />
+                                ) : null}
                                 <div>
                                   <div className="mini-card-header">
                                     <strong>{member.name}</strong>
@@ -1952,8 +2070,10 @@ function App() {
                         </div>
                         {activeNpc ? (
                           <div className="npc-chat-shell arena-panel-card">
-                            <div className="npc-profile">
-                              <img src={activeNpc.avatarUrl} alt={activeNpc.name} className="npc-avatar" />
+                            <div className={`npc-profile ${game.artSettings.autoGenerate ? "" : "no-art-card"}`}>
+                              {game.artSettings.autoGenerate ? (
+                                <img src={activeNpc.avatarUrl} alt={activeNpc.name} className="npc-avatar" />
+                              ) : null}
                               <div>
                                 <strong>{activeNpc.name}</strong>
                                 <p>{activeNpc.archetype}</p>
@@ -2206,12 +2326,13 @@ function App() {
             </section>
 
             <aside className="arena-side-column">
-              <div className="panel runtime-panel arena-side-panel">
+              {showSettings ? (
+                <>
+                  <div className="panel runtime-panel arena-side-panel settings-panel">
                 <div className="panel-header">
                   <p className="eyebrow">Runtime</p>
-                  <span className="meta-chip">{game.selectedProvider}</span>
+                  <span className="meta-chip">{formatProviderLabel(game)}</span>
                 </div>
-                <p className="subtle-copy">{game.selectedModelId}</p>
                 <div className="provider-toggle">
                   <button
                     type="button"
@@ -2227,10 +2348,21 @@ function App() {
                   >
                     WebLLM
                   </button>
+                  <button
+                    type="button"
+                    className={`provider-button ${selectedProvider === "local" ? "provider-button-active" : ""}`}
+                    onClick={() => setSelectedProvider("local")}
+                  >
+                    Ollama / vLLM
+                  </button>
                 </div>
                 {selectedProvider === "openrouter" ? (
                   <>
+                    <label className="field-label" htmlFor="runtime-openrouter-model">
+                      OpenRouter model
+                    </label>
                     <input
+                      id="runtime-openrouter-model"
                       className="text-input"
                       value={selectedOpenRouterModel}
                       onChange={(event) => setSelectedOpenRouterModel(event.target.value)}
@@ -2241,19 +2373,83 @@ function App() {
                         <option key={model} value={model} />
                       ))}
                     </datalist>
+                    <label className="field-label" htmlFor="runtime-openrouter-key">
+                      API key
+                    </label>
+                    <input
+                      id="runtime-openrouter-key"
+                      className="text-input"
+                      type="password"
+                      value={openRouterKeyInput}
+                      onChange={(event) => setOpenRouterKeyInput(event.target.value)}
+                      placeholder={openRouterKeyStored ? "Encrypted key stored" : "sk-or-v1-..."}
+                    />
+                    <div className="provider-actions">
+                      <button type="button" className="ghost-button" onClick={handleStoreOpenRouterKey}>
+                        Save Key
+                      </button>
+                      <button
+                        type="button"
+                        className="ghost-button"
+                        onClick={handleClearOpenRouterKey}
+                        disabled={!openRouterKeyStored}
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  </>
+                ) : selectedProvider === "local" ? (
+                  <>
+                    <label className="field-label" htmlFor="runtime-local-endpoint">
+                      Local endpoint
+                    </label>
+                    <input
+                      id="runtime-local-endpoint"
+                      className="text-input"
+                      value={selectedLocalEndpoint}
+                      onChange={(event) => setSelectedLocalEndpoint(event.target.value)}
+                      placeholder="http://127.0.0.1:11434/v1"
+                    />
+                    <label className="field-label" htmlFor="runtime-local-model">
+                      Local model
+                    </label>
+                    <input
+                      id="runtime-local-model"
+                      className="text-input"
+                      value={selectedLocalModel}
+                      onChange={(event) => setSelectedLocalModel(event.target.value)}
+                      placeholder="llama3.1"
+                    />
+                    <label className="field-label" htmlFor="runtime-local-api-key">
+                      API key
+                    </label>
+                    <input
+                      id="runtime-local-api-key"
+                      className="text-input"
+                      type="password"
+                      value={selectedLocalApiKey}
+                      onChange={(event) => setSelectedLocalApiKey(event.target.value)}
+                      placeholder="optional"
+                    />
                   </>
                 ) : webllmCatalogStatus === "ready" ? (
-                  <select
-                    className="text-input"
-                    value={selectedModelId}
-                    onChange={(event) => setSelectedModelId(event.target.value)}
-                  >
-                    {toolCallingModels.map((model) => (
-                      <option key={model.id} value={model.id}>
-                        {model.label}
-                      </option>
-                    ))}
-                  </select>
+                  <>
+                    <label className="field-label" htmlFor="runtime-webllm-model">
+                      WebLLM model
+                    </label>
+                    <select
+                      id="runtime-webllm-model"
+                      className="text-input"
+                      value={selectedModelId}
+                      onChange={(event) => setSelectedModelId(event.target.value)}
+                    >
+                      {toolCallingModels.map((model) => (
+                        <option key={model.id} value={model.id}>
+                          {model.label}
+                        </option>
+                      ))}
+                    </select>
+                  </>
                 ) : (
                   <button type="button" className="ghost-button" onClick={() => void loadWebllmCatalog()}>
                     Load WebLLM Models
@@ -2267,7 +2463,7 @@ function App() {
                 >
                   Apply Runtime
                 </button>
-              </div>
+                  </div>
 
               <div className="panel arena-side-panel">
                 <div className="panel-header">
@@ -2496,7 +2692,10 @@ function App() {
                 )}
               </div>
 
-              <div className="panel arena-side-panel">
+                </>
+              ) : (
+                <>
+              <div className="panel arena-side-panel compact-hud">
                 <div className="panel-header">
                   <p className="eyebrow">Condition</p>
                   <span className="meta-chip">Turn {game.turnCount}</span>
@@ -2538,20 +2737,19 @@ function App() {
                 </div>
               </div>
 
-              <div className="panel arena-side-panel">
+                  <div className="panel arena-side-panel compact-hud">
                 <div className="panel-header">
                   <p className="eyebrow">Location</p>
                   <span className="meta-chip">{game.environment.timeOfDay}</span>
                 </div>
                 <strong>{game.environment.location}</strong>
-                <p className="subtle-copy">{game.environment.sceneSummary}</p>
-                <div className="tag-row">
-                  {game.environment.hazards.map((hazard) => (
+                <div className="tag-row compact-tags">
+                  {game.environment.hazards.slice(0, 3).map((hazard) => (
                     <span key={hazard} className="meta-chip">
                       {hazard}
                     </span>
                   ))}
-                  {game.environment.factions.map((faction) => (
+                  {game.environment.factions.slice(0, 3).map((faction) => (
                     <span key={faction} className="meta-chip">
                       {faction}
                     </span>
@@ -2559,7 +2757,7 @@ function App() {
                 </div>
               </div>
 
-              <div className="panel arena-side-panel">
+                  <div className="panel arena-side-panel compact-hud">
                 <div className="panel-header">
                   <p className="eyebrow">Quick Sheet</p>
                   <span className="meta-chip">{game.player.className}</span>
@@ -2590,37 +2788,23 @@ function App() {
                     <strong>{game.player.xp}</strong>
                   </div>
                 </div>
-                <div className="tag-row">
-                  {game.player.classFeatures.map((feature) => (
-                    <span key={feature} className="meta-chip">
-                      {feature}
-                    </span>
-                  ))}
-                  {game.player.customTraits.map((trait) => (
-                    <span key={trait} className="meta-chip">
-                      {trait}
-                    </span>
-                  ))}
-                </div>
               </div>
 
-              <div className="panel arena-side-panel">
-                <div className="panel-header">
-                  <p className="eyebrow">Recent Art</p>
-                  <span className="meta-chip">{game.artGallery.length} frames</span>
-                </div>
-                {game.artGallery.length > 0 ? (
-                  <div className="art-strip arena-art-strip">
-                    {game.artGallery.slice(0, 6).map((art) => (
-                      <img key={art.id} src={art.url} alt={art.prompt} className="art-thumb" />
-                    ))}
-                  </div>
-                ) : (
-                  <div className="art-placeholder arena-placeholder">
-                    Scene, enemy, portrait, and item art appears here as the DM generates it.
-                  </div>
-                )}
-              </div>
+                  {game.artSettings.autoGenerate && game.artGallery.length > 0 ? (
+                    <div className="panel arena-side-panel compact-hud">
+                      <div className="panel-header">
+                        <p className="eyebrow">Recent Art</p>
+                        <span className="meta-chip">{game.artGallery.length}</span>
+                      </div>
+                      <div className="art-strip arena-art-strip">
+                        {game.artGallery.slice(0, 6).map((art) => (
+                          <img key={art.id} src={art.url} alt={art.prompt} className="art-thumb" />
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                </>
+              )}
             </aside>
           </section>
         )}

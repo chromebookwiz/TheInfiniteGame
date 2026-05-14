@@ -279,7 +279,7 @@ button {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 10px;
-  padding: 12px;
+  padding: 10px;
   border: 1px solid var(--terminal-line);
   background: var(--terminal-panel);
   color: var(--terminal-text);
@@ -291,7 +291,7 @@ button {
 
 .music-controls {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
 }
 
@@ -299,6 +299,12 @@ button {
   min-height: 38px;
   padding: 8px 10px;
   font-size: 0.85rem;
+}
+
+.top-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
 }
 
 .music-volume {
@@ -332,6 +338,41 @@ button {
       transparent 4px
     ),
     #010101;
+}
+
+.in-game-shell {
+  font-family: "IBM Plex Mono", monospace;
+}
+
+.in-game-shell .app-frame {
+  width: min(1360px, calc(100vw - 24px));
+}
+
+.in-game-shell .hero-panel {
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 360px);
+  gap: 12px;
+  padding: 14px;
+  margin-bottom: 12px;
+}
+
+.in-game-shell .status-stack {
+  gap: 8px;
+}
+
+.in-game-shell .terminal-meta-row {
+  margin-top: 10px;
+  gap: 8px;
+}
+
+.in-game-shell .terminal-box {
+  min-height: 30px;
+  padding: 4px 9px;
+  font-size: 0.98rem;
+}
+
+.in-game-shell .panel,
+.in-game-shell .story-card {
+  padding: 14px;
 }
 
 .home-terminal-shell {
@@ -429,6 +470,14 @@ button {
   font-size: clamp(2.8rem, 6vw, 5.1rem);
   letter-spacing: 0.16em;
   text-shadow: 0 0 24px var(--terminal-glow);
+}
+
+.compact-title {
+  font-size: clamp(1.15rem, 2.1vw, 2rem);
+  letter-spacing: 0.08em;
+  max-width: 28ch;
+  overflow-wrap: anywhere;
+  text-shadow: 0 0 18px var(--terminal-glow);
 }
 
 .terminal-copy {
@@ -1266,6 +1315,103 @@ button {
     var(--panel-soft);
 }
 
+.settings-panel {
+  border-color: var(--terminal-line);
+  background:
+    linear-gradient(180deg, var(--terminal-active), transparent 28%),
+    var(--terminal-panel);
+}
+
+.compact-hud {
+  padding: 12px;
+}
+
+.compact-hud .panel-header {
+  margin-bottom: 8px;
+}
+
+.compact-hud .stat-grid {
+  gap: 8px;
+}
+
+.compact-hud .stat-grid div {
+  padding: 9px;
+}
+
+.compact-hud strong {
+  overflow-wrap: anywhere;
+}
+
+.inventory-card.no-art-card,
+.enemy-card.no-art-card,
+.npc-profile.no-art-card {
+  grid-template-columns: 1fr;
+}
+
+.focus-mode .app-frame {
+  width: min(1180px, calc(100vw - 16px));
+  padding-top: 8px;
+}
+
+.focus-mode .arena-hero {
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 320px);
+  padding: 10px;
+  margin-bottom: 10px;
+}
+
+.focus-mode .arena-side-column,
+.focus-mode .arena-tab-bar,
+.focus-mode .story-header-panel {
+  display: none;
+}
+
+.focus-mode .arena-layout {
+  grid-template-columns: 1fr;
+}
+
+.focus-mode .arena-main-column {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 390px);
+  gap: 10px;
+  align-items: start;
+}
+
+.focus-mode .arena-view-panel {
+  min-height: 0;
+}
+
+.focus-mode .arena-scroll-region {
+  max-height: calc(100vh - 350px);
+}
+
+.focus-mode .arena-command-panel {
+  position: sticky;
+  top: 8px;
+}
+
+.focus-mode .scene-rails,
+.focus-mode .action-controls {
+  grid-template-columns: 1fr;
+}
+
+.focus-mode .field-label {
+  margin: 8px 0 5px;
+}
+
+.focus-mode .text-input,
+.focus-mode .primary-button,
+.focus-mode .ghost-button {
+  padding: 9px 10px;
+}
+
+.focus-mode .text-area {
+  min-height: 96px;
+}
+
+.focus-mode .story-card {
+  padding: 14px;
+}
+
 @media (max-width: 1180px) {
   .hero-panel,
   .setup-grid,
@@ -1343,11 +1489,20 @@ button {
     grid-template-columns: 1fr;
   }
 
+  .focus-mode .arena-main-column {
+    grid-template-columns: 1fr;
+  }
+
+  .focus-mode .arena-command-panel {
+    position: static;
+  }
+
   .combat-cell {
     min-width: 58px;
   }
 
   .music-controls,
+  .top-actions,
   .director-grid {
     grid-template-columns: 1fr;
   }

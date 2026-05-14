@@ -7,6 +7,7 @@ A browser-first infinite choose-your-own-adventure built with React, Vite, and W
 - Uses WebLLM in a Web Worker for the dungeon master and NPC dialogue.
 - Defers WebLLM catalog and engine loading until the local provider is explicitly selected.
 - Adds an optional OpenRouter runtime for mobile or lower-powered devices.
+- Adds an OpenAI-compatible local runtime for Ollama or vLLM endpoints on the same machine or LAN.
 - Adds Supabase-backed accounts with email verification or Google OAuth plus cloud-synced campaign history.
 - Restricts the model picker to WebLLM models exported as tool-calling-capable.
 - Starts from either one of 24 curated opening conditions or a custom user-written theme.
@@ -18,9 +19,10 @@ A browser-first infinite choose-your-own-adventure built with React, Vite, and W
 - Supports AI party members who can act, fight, take damage, and stay synchronized with the dungeon master.
 - Adds a tactical combat grid with generated terrain, combatant tokens, enemy placement, and manual repositioning.
 - Lets the dungeon master choose the campaign color theme from the setup and update it when the genre pivots.
-- Lets you switch between OpenRouter and WebLLM during a running campaign.
+- Lets you switch between OpenRouter, WebLLM, and local Ollama/vLLM during a running campaign.
 - Prunes long-running story and NPC chat history into durable memory entries so campaigns can keep going without bloating context.
-- Includes a looping four-track soundtrack with persistent volume and mute controls.
+- Includes a looping four-track background soundtrack with persistent volume and mute controls.
+- Adds a clean settings drawer and focus mode so the live game can collapse to the necessary HUD, current view, action input, and optional art.
 - Adds a Director panel with one-click world pulses, faction turns, recaps, travel, downtime, treasure, mystery, and rest prompts.
 - Maintains a memory ledger and a mutable ruleset summary so the dungeon master has durable context.
 
@@ -49,6 +51,17 @@ Set `VITE_IMAGE_API_BASE` if you want to point the app at a different image gene
 In a running campaign, the Art Engine panel can switch to ComfyUI. Paste one or more ComfyUI workflow JSON blobs, assign each workflow to scene, environment, character, portrait, enemy, or item art, and choose the prompt node/input name the app should patch before queueing the workflow against your ComfyUI server.
 
 An example environment file is included at `.env.example`.
+
+## Local LLM endpoints
+
+Choose `Ollama / vLLM` in setup or the in-game settings panel, then enter an OpenAI-compatible endpoint and model name.
+
+Defaults:
+
+- Endpoint: `http://127.0.0.1:11434/v1`
+- Model: `llama3.1`
+
+For a LAN server, use the server address instead, for example `http://192.168.1.50:8000/v1`. Your local server must allow browser CORS requests from the Vite or deployed origin.
 
 ## Mobile support
 

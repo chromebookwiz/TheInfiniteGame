@@ -16,7 +16,7 @@ import {
   normalizeGameState,
 } from "./gameState";
 import { getToolCallingAppConfig } from "./models";
-import { createOpenRouterChatCompletion } from "./openrouter";
+import { createOpenAICompatibleChatCompletion, createOpenRouterChatCompletion } from "./openrouter";
 import {
   DEFAULT_CLASS_ID,
   getClassDefinition,
@@ -1034,6 +1034,7 @@ export function createInitialGameState(input: {
   startingCondition: string;
   selectedProvider: ProviderConfig["kind"];
   selectedModelId: string;
+  selectedEndpoint?: string;
   classId: string;
 }): GameState {
   const player = createDefaultPlayer(input.classId);
@@ -1046,6 +1047,7 @@ export function createInitialGameState(input: {
     startingCondition: input.startingCondition,
     selectedProvider: input.selectedProvider,
     selectedModelId: input.selectedModelId,
+    selectedEndpoint: input.selectedEndpoint,
     turnCount: 0,
     campaignTheme,
     sceneControls: createDefaultSceneControls(),
@@ -1150,6 +1152,27 @@ async function createProviderChatCompletion(input: {
 
     const response = await createOpenRouterChatCompletion({
       apiKey: input.provider.openRouterApiKey,
+      model: input.provider.modelId,
+      messages: input.messages,
+      tools: input.tools,
+      temperature: input.temperature,
+      maxTokens: input.maxTokens,
+    });
+
+    return {
+      content: response.message.content,
+      tool_calls: response.message.tool_calls as ChatCompletionMessageToolCall[] | undefined,
+    };
+  }
+
+  if (input.provider.kind === "local") {
+    if (!input.provider.endpoint) {
+      throw new Error("Local runtime endpoint is required.");
+    }
+
+    const response = await createOpenAICompatibleChatCompletion({
+      endpoint: input.provider.endpoint,
+      apiKey: input.provider.apiKey,
       model: input.provider.modelId,
       messages: input.messages,
       tools: input.tools,

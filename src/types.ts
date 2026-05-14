@@ -10,7 +10,7 @@ export type QuestStatus = "active" | "completed" | "failed";
 export type StorySpeaker = "dm" | "player" | "system";
 export type NpcChatRole = "player" | "npc";
 export type ArtFocus = "scene" | "portrait" | "item" | "enemy" | "character" | "environment";
-export type ProviderKind = "webllm" | "openrouter";
+export type ProviderKind = "webllm" | "openrouter" | "local";
 export type ArtProviderKind = "pollinations" | "comfy";
 export type CampaignThemeId =
   | "mono"
@@ -366,6 +366,7 @@ export interface GameState {
   startingCondition: string;
   selectedProvider: ProviderKind;
   selectedModelId: string;
+  selectedEndpoint?: string;
   turnCount: number;
   campaignTheme: CampaignThemeState;
   sceneControls: SceneControls;
@@ -418,4 +419,6 @@ export interface ProviderConfig {
   kind: ProviderKind;
   modelId: string;
   openRouterApiKey?: string;
+  endpoint?: string;
+  apiKey?: string;
 }
