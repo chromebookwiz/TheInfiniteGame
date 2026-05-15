@@ -198,12 +198,21 @@ export interface ActionCheck {
   id: string;
   ability: keyof AbilityScores;
   risk: ActionRisk;
+  approachLabel?: string;
+  approachRationale?: string;
   roll: number;
   modifier: number;
   total: number;
   difficulty: number;
   outcomeBand: "miss" | "mixed" | "success" | "critical";
   createdAt: number;
+}
+
+export interface ActionApproach {
+  ability: keyof AbilityScores;
+  risk: ActionRisk;
+  label: string;
+  rationale: string;
 }
 
 export interface ToolEvent {

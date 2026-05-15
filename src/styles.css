@@ -15,15 +15,19 @@
   --rgb-red: #ff4d4d;
   --rgb-green: #4dff88;
   --rgb-blue: #53a7ff;
+  --neon-cyan: #4df7ff;
+  --neon-pink: #ff4fd8;
+  --neon-lime: #8cff6a;
+  --signal-amber: #ffd166;
   --terminal-text: #ffffff;
   --terminal-muted: rgba(255, 255, 255, 0.76);
   --terminal-line: rgba(255, 255, 255, 0.88);
   --terminal-line-soft: rgba(255, 255, 255, 0.35);
-  --terminal-panel: #020202;
-  --terminal-panel-soft: #050505;
-  --terminal-panel-alt: #080808;
+  --terminal-panel: #03050b;
+  --terminal-panel-soft: #060914;
+  --terminal-panel-alt: #0a0e19;
   --terminal-active: rgba(255, 255, 255, 0.12);
-  --terminal-gradient: linear-gradient(90deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.08));
+  --terminal-gradient: linear-gradient(90deg, rgba(77, 247, 255, 0.2), rgba(255, 79, 216, 0.14), rgba(140, 255, 106, 0.1));
   --terminal-glow: rgba(255, 255, 255, 0.14);
   --shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
 }
@@ -120,9 +124,10 @@ body {
   margin: 0;
   min-width: 320px;
   background:
+    linear-gradient(90deg, rgba(77, 247, 255, 0.08), transparent 22%, rgba(255, 79, 216, 0.06) 72%, transparent),
     linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent 24%),
-    radial-gradient(circle at top center, rgba(255, 255, 255, 0.08), transparent 32%),
-    linear-gradient(180deg, #050505 0%, #0a0a0a 42%, #050505 100%);
+    repeating-linear-gradient(90deg, rgba(77, 247, 255, 0.035) 0, rgba(77, 247, 255, 0.035) 1px, transparent 1px, transparent 84px),
+    linear-gradient(180deg, #03040a 0%, #080b12 46%, #030409 100%);
   color: var(--text);
   font-family: "Audiowide", cursive;
 }
@@ -329,6 +334,7 @@ button {
 
 .terminal-shell {
   position: relative;
+  isolation: isolate;
   background:
     repeating-linear-gradient(
       180deg,
@@ -338,6 +344,20 @@ button {
       transparent 4px
     ),
     #010101;
+}
+
+.terminal-shell::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(90deg, rgba(77, 247, 255, 0.08), transparent 26%, rgba(255, 79, 216, 0.06) 68%, transparent),
+    repeating-linear-gradient(0deg, rgba(140, 255, 106, 0.04) 0, rgba(140, 255, 106, 0.04) 1px, transparent 1px, transparent 72px),
+    repeating-linear-gradient(90deg, rgba(77, 247, 255, 0.04) 0, rgba(77, 247, 255, 0.04) 1px, transparent 1px, transparent 72px);
+  opacity: 0.72;
+  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.92), rgba(0, 0, 0, 0.28) 70%, transparent);
 }
 
 .in-game-shell {
@@ -433,11 +453,14 @@ button {
   border-radius: 0;
   border-color: var(--terminal-line);
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 18%),
+    linear-gradient(135deg, rgba(77, 247, 255, 0.06), transparent 34%),
+    linear-gradient(315deg, rgba(255, 79, 216, 0.045), transparent 42%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.035), transparent 18%),
     var(--terminal-panel);
   box-shadow:
     inset 0 0 0 1px rgba(255, 255, 255, 0.04),
     0 0 0 1px rgba(255, 255, 255, 0.04),
+    0 0 28px rgba(77, 247, 255, 0.08),
     0 20px 50px rgba(0, 0, 0, 0.45);
 }
 
@@ -596,15 +619,20 @@ button {
 .terminal-shell .provider-button,
 .terminal-shell .seed-chip,
 .terminal-shell .arena-tab-button {
-  background: var(--terminal-panel-soft);
+  background:
+    linear-gradient(180deg, rgba(77, 247, 255, 0.07), rgba(255, 79, 216, 0.025)),
+    var(--terminal-panel-soft);
   color: var(--terminal-text);
 }
 
 .terminal-shell .primary-button {
-  background: var(--terminal-text);
-  color: #000000;
+  background: linear-gradient(90deg, var(--neon-cyan), #f3fff0 52%, var(--neon-lime));
+  color: #02030a;
   text-transform: uppercase;
   letter-spacing: 0.08em;
+  box-shadow:
+    0 0 18px rgba(77, 247, 255, 0.2),
+    inset 0 0 0 1px rgba(0, 0, 0, 0.35);
 }
 
 .terminal-shell .field-label,
@@ -828,18 +856,21 @@ button {
   gap: 10px;
 }
 
-.director-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-}
-
 .provider-button {
   flex: 1 1 180px;
 }
 
 .seed-list {
   margin-top: 16px;
+}
+
+.rail-chip {
+  cursor: default;
+  box-shadow: none;
+}
+
+.rail-chip:hover {
+  transform: none;
 }
 
 .class-card,
@@ -899,7 +930,7 @@ button {
 .arena-layout {
   display: grid;
   grid-template-columns: minmax(0, 1.55fr) 360px;
-  gap: 18px;
+  gap: 12px;
   align-items: start;
 }
 
@@ -907,7 +938,7 @@ button {
 .arena-side-column {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 12px;
 }
 
 .arena-tab-bar {
@@ -924,8 +955,194 @@ button {
   font-size: 0.74rem;
 }
 
+.arena-live-hud {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.95fr) minmax(250px, 0.78fr) minmax(320px, 1.05fr);
+  gap: 12px;
+  padding: 12px;
+  border-color: var(--terminal-line);
+}
+
+.hud-scene {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  gap: 12px;
+  min-width: 0;
+  align-items: stretch;
+}
+
+.hud-scene-visual {
+  position: relative;
+  min-height: 128px;
+  overflow: hidden;
+  border: 1px solid var(--terminal-line);
+  background:
+    linear-gradient(135deg, rgba(77, 247, 255, 0.12), rgba(255, 79, 216, 0.08)),
+    #05070d;
+}
+
+.hud-scene-visual::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(180deg, rgba(255, 255, 255, 0.08) 0, rgba(255, 255, 255, 0.08) 1px, transparent 1px, transparent 5px);
+  mix-blend-mode: screen;
+  opacity: 0.22;
+}
+
+.hud-scene-visual img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 128px;
+  object-fit: cover;
+}
+
+.hud-scene-empty {
+  display: grid;
+  place-items: center;
+  padding: 12px;
+  text-align: center;
+  color: var(--terminal-muted);
+}
+
+.hud-scene-copy,
+.hud-status,
+.hud-rosters,
+.hud-roster-block {
+  min-width: 0;
+}
+
+.hud-scene-copy p,
+.hud-stakes p {
+  margin: 8px 0 0;
+}
+
+.hud-status {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.hud-vitals-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.hud-vital,
+.hud-stakes,
+.hud-token,
+.hud-empty {
+  border: 1px solid var(--terminal-line-soft);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.035), transparent),
+    rgba(0, 0, 0, 0.2);
+}
+
+.hud-vital {
+  min-height: 76px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 4px;
+}
+
+.hud-vital span,
+.hud-vital small,
+.hud-token small,
+.hud-empty {
+  color: var(--terminal-muted);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.72rem;
+}
+
+.hud-vital strong,
+.hud-token strong,
+.hud-stakes strong {
+  overflow-wrap: anywhere;
+}
+
+.hud-vital .meter-track {
+  height: 6px;
+  margin-top: 0;
+}
+
+.hud-stakes {
+  padding: 10px;
+}
+
+.hud-rosters {
+  display: grid;
+  gap: 10px;
+}
+
+.hud-roster-block .mini-card-header {
+  margin-bottom: 8px;
+}
+
+.hud-token-row {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.hud-token {
+  min-width: 150px;
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  padding: 7px;
+}
+
+.hud-token-icon {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  object-fit: cover;
+  border: 1px solid var(--terminal-line);
+  background: #03050b;
+  color: var(--terminal-text);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.78rem;
+}
+
+.hud-token strong,
+.hud-token small {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hud-token-player {
+  border-color: rgba(77, 247, 255, 0.72);
+}
+
+.hud-token-party {
+  border-color: rgba(140, 255, 106, 0.62);
+}
+
+.hud-token-enemy {
+  border-color: rgba(255, 95, 109, 0.72);
+}
+
+.hud-empty {
+  min-height: 58px;
+  min-width: 150px;
+  display: grid;
+  place-items: center;
+  padding: 8px;
+  text-align: center;
+}
+
 .arena-view-panel {
-  min-height: 620px;
+  min-height: 560px;
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -1372,11 +1589,20 @@ button {
 .focus-mode .arena-main-column {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(320px, 390px);
+  grid-template-areas:
+    "hud command"
+    "view command";
   gap: 10px;
   align-items: start;
 }
 
+.focus-mode .arena-live-hud {
+  grid-area: hud;
+  grid-template-columns: 1fr;
+}
+
 .focus-mode .arena-view-panel {
+  grid-area: view;
   min-height: 0;
 }
 
@@ -1385,13 +1611,25 @@ button {
 }
 
 .focus-mode .arena-command-panel {
+  grid-area: command;
   position: sticky;
   top: 8px;
 }
 
-.focus-mode .scene-rails,
-.focus-mode .action-controls {
+.focus-mode .scene-rails {
   grid-template-columns: 1fr;
+}
+
+.focus-mode .hud-scene {
+  grid-template-columns: 120px minmax(0, 1fr);
+}
+
+.focus-mode .hud-vitals-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.focus-mode .hud-token {
+  min-width: 136px;
 }
 
 .focus-mode .field-label {
@@ -1417,6 +1655,7 @@ button {
   .setup-grid,
   .setup-grid-wide,
   .arena-layout,
+  .arena-live-hud,
   .arena-surroundings-grid,
   .arena-actors-grid,
   .arena-character-grid,
@@ -1483,14 +1722,23 @@ button {
   }
 
   .scene-rails,
+  .hud-scene,
   .action-controls,
   .combat-toolbar,
   .workflow-select-row {
     grid-template-columns: 1fr;
   }
 
+  .hud-vitals-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .focus-mode .arena-main-column {
     grid-template-columns: 1fr;
+    grid-template-areas:
+      "hud"
+      "view"
+      "command";
   }
 
   .focus-mode .arena-command-panel {
@@ -1502,8 +1750,7 @@ button {
   }
 
   .music-controls,
-  .top-actions,
-  .director-grid {
+  .top-actions {
     grid-template-columns: 1fr;
   }
 }

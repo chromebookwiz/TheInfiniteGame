@@ -15,6 +15,7 @@ import {
   subscribeToAccountChanges,
 } from "./lib/account";
 import {
+  chooseActionApproach,
   createInitialGameState,
   ensureEngine,
   runDungeonMasterTurn,
@@ -36,8 +37,8 @@ import {
   storeEncryptedOpenRouterKey,
 } from "./lib/secureStorage";
 import type {
+  ActionApproach,
   ActionCheck,
-  ActionRisk,
   ArtFocus,
   ArtProviderKind,
   ArtWorkflowConfig,
@@ -64,15 +65,6 @@ type TerminalTheme = CampaignThemeId;
 type AbilityKey = keyof GameState["player"]["abilityScores"];
 
 const ART_FOCI: ArtFocus[] = ["scene", "environment", "character", "portrait", "enemy", "item"];
-const ACTION_RISKS: ActionRisk[] = ["controlled", "risky", "desperate"];
-const ABILITY_LABELS: Array<{ id: AbilityKey; label: string }> = [
-  { id: "strength", label: "Force" },
-  { id: "dexterity", label: "Finesse" },
-  { id: "constitution", label: "Endure" },
-  { id: "intelligence", label: "Study" },
-  { id: "wisdom", label: "Sense" },
-  { id: "charisma", label: "Sway" },
-];
 const MUSIC_TRACKS = [
   "/music/Glass%20Harbors.mp3",
   "/music/Pearl%20Strings.mp3",
@@ -81,56 +73,7 @@ const MUSIC_TRACKS = [
 ];
 const DEFAULT_LOCAL_ENDPOINT = "http://127.0.0.1:11434/v1";
 const DEFAULT_LOCAL_MODEL = "llama3.1";
-const DIRECTOR_ACTIONS: Array<{ label: string; prompt: string; tab: GameTab }> = [
-  {
-    label: "World Pulse",
-    tab: "journal",
-    prompt:
-      "Advance the living world one beat: move a faction, reveal a pressure, update clocks, and show one new opportunity without requiring the player to be present everywhere.",
-  },
-  {
-    label: "Faction Turn",
-    tab: "quests",
-    prompt:
-      "Run a faction turn in the background. Pick the most relevant faction, advance its agenda, commit durable memory, and create or update a quest hook if the player can react.",
-  },
-  {
-    label: "Recap",
-    tab: "journal",
-    prompt:
-      "Give a concise in-world campaign recap, archive what matters into memory, restate the current stakes, and offer sharp next actions.",
-  },
-  {
-    label: "Travel",
-    tab: "surroundings",
-    prompt:
-      "Frame a travel montage to a meaningful nearby destination with one discovery, one complication, and an updated environment.",
-  },
-  {
-    label: "Downtime",
-    tab: "party",
-    prompt:
-      "Run a downtime beat. Let party members and contacts pursue goals, heal or spend resources when earned, and surface one relationship consequence.",
-  },
-  {
-    label: "Treasure",
-    tab: "inventory",
-    prompt:
-      "Offer a fair treasure, clue, craft material, or trade opportunity that fits the current danger. Do not grant it for free unless the fiction already earned it.",
-  },
-  {
-    label: "Mystery",
-    tab: "journal",
-    prompt:
-      "Introduce or deepen a mystery with a concrete clue, a false lead risk, and one NPC or faction who cares about the answer.",
-  },
-  {
-    label: "Rest",
-    tab: "player",
-    prompt:
-      "Resolve an attempted rest under the current rules. Restore only what the fiction allows, advance clocks if danger remains, and update resources.",
-  },
-];
+const DIRECTOR_PREFIX_PATTERN = /^\/?\s*(?:director|dm|system)\s*[:/-]\s*/i;
 
 function createStoryBeat(
   speaker: StorySpeaker,
@@ -184,30 +127,9 @@ function abilityModifier(score: number): number {
   return Math.floor((score - 10) / 2);
 }
 
-function inferActionAbility(action: string): AbilityKey {
-  const lowered = action.toLowerCase();
-  if (/(force|break|lift|shove|smash|grapple|strike|cleave)/.test(lowered)) {
-    return "strength";
-  }
-  if (/(sneak|hide|dodge|aim|shoot|balance|lockpick|slip)/.test(lowered)) {
-    return "dexterity";
-  }
-  if (/(endure|resist|hold|survive|march|poison|pain)/.test(lowered)) {
-    return "constitution";
-  }
-  if (/(study|hack|decode|recall|craft|analyze|ritual|map)/.test(lowered)) {
-    return "intelligence";
-  }
-  if (/(sense|track|listen|search|notice|heal|read the room|pray)/.test(lowered)) {
-    return "wisdom";
-  }
-  if (/(talk|convince|lie|perform|command|bargain|comfort|taunt)/.test(lowered)) {
-    return "charisma";
-  }
-  return "wisdom";
-}
-
-function createActionCheck(game: GameState, risk: ActionRisk, ability: AbilityKey): ActionCheck {
+function createActionCheck(game: GameState, approach: ActionApproach): ActionCheck {
+  const ability = approach.ability as AbilityKey;
+  const risk = approach.risk;
   const roll = Math.floor(Math.random() * 20) + 1;
   const modifier = abilityModifier(game.player.abilityScores[ability]);
   const difficulty = risk === "controlled" ? 11 : risk === "desperate" ? 17 : 14;
@@ -225,6 +147,8 @@ function createActionCheck(game: GameState, risk: ActionRisk, ability: AbilityKe
     id: `check_${crypto.randomUUID()}`,
     ability,
     risk,
+    approachLabel: approach.label,
+    approachRationale: approach.rationale,
     roll,
     modifier,
     total,
@@ -237,13 +161,35 @@ function createActionCheck(game: GameState, risk: ActionRisk, ability: AbilityKe
 function buildActionPacket(action: string, check: ActionCheck, game: GameState): string {
   const shortcuts = game.sceneControls.blockedShortcuts.join("; ") || "none listed";
   const moves = game.sceneControls.availableMoves.join("; ") || "improvise carefully";
+  const abilityScore = game.player.abilityScores[check.ability];
   return [
     `Player intent: ${action}`,
-    `Action check: ${check.ability} ${check.risk}, d20 ${check.roll} ${check.modifier >= 0 ? "+" : ""}${check.modifier} = ${check.total} vs DC ${check.difficulty} (${check.outcomeBand}).`,
+    `Director-selected approach: ${check.approachLabel ?? check.ability} using ${check.ability}; risk ${check.risk}.`,
+    `Approach rationale: ${check.approachRationale ?? "The director chose the governing stat from the declared intent and scene pressure."}`,
+    `Action check: ${check.ability} score ${abilityScore}, d20 ${check.roll} ${check.modifier >= 0 ? "+" : ""}${check.modifier} = ${check.total} vs DC ${check.difficulty} (${check.outcomeBand}).`,
     `Scene stakes: ${game.sceneControls.stakes}`,
     `Available action lanes: ${moves}`,
     `Do not allow these shortcuts as declarations: ${shortcuts}`,
     "Resolve this as an attempt, not automatic success. Apply costs, resource changes, grid movement, ally/enemy actions, clocks, and consequences through tools.",
+  ].join("\n");
+}
+
+function isDirectorCommand(input: string): boolean {
+  return DIRECTOR_PREFIX_PATTERN.test(input);
+}
+
+function normalizeDirectorCommand(input: string): string {
+  return input.replace(DIRECTOR_PREFIX_PATTERN, "").trim();
+}
+
+function buildDirectorPacket(command: string, game: GameState): string {
+  return [
+    `Director command: ${command}`,
+    "This is not a player action and should not receive a player roll.",
+    "Retrieve the relevant campaign facts from the provided state packet and memory ledger, then use tools to update environment, scene controls, quests, enemies, party, inventory, art, combat, or memory as needed.",
+    `Current stakes: ${game.sceneControls.stakes}`,
+    `Pressure clock: ${game.sceneControls.clockName} ${game.sceneControls.clockValue}/${game.sceneControls.clockMax}`,
+    "After tool calls, report the resulting world change crisply and keep the next playable moment clear.",
   ].join("\n");
 }
 
@@ -302,8 +248,7 @@ function App() {
   const [selectedNpcId, setSelectedNpcId] = useState<string | undefined>(undefined);
   const [activeTab, setActiveTab] = useState<GameTab>("surroundings");
   const [actionInput, setActionInput] = useState("");
-  const [selectedActionRisk, setSelectedActionRisk] = useState<ActionRisk>("risky");
-  const [selectedActionAbility, setSelectedActionAbility] = useState<AbilityKey>("wisdom");
+  const [directorInput, setDirectorInput] = useState("");
   const [selectedCombatantId, setSelectedCombatantId] = useState("player");
   const [showSettings, setShowSettings] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
@@ -893,22 +838,29 @@ function App() {
     }
 
     const playerAction = rawAction.trim();
-    const ability = selectedActionAbility || inferActionAbility(playerAction);
-    const check = createActionCheck(game, selectedActionRisk, ability);
-    const actionPacket = buildActionPacket(playerAction, check, game);
-    const withPlayerBeat: GameState = maintainGameContext({
-      ...game,
-      story: [...game.story, createStoryBeat("player", playerAction, { check })],
-    });
+    if (isDirectorCommand(playerAction)) {
+      await resolveDirectorCommand(playerAction);
+      return;
+    }
 
-    setGame(withPlayerBeat);
+    const baseGame = game;
     setActionInput("");
-    setBusyLabel("The dungeon master is resolving the simulation...");
+    setBusyLabel("The director is choosing the approach...");
     setErrorMessage("");
 
     try {
-      const provider = await buildProviderConfig(withPlayerBeat.selectedProvider);
+      const provider = await buildProviderConfig(baseGame.selectedProvider);
       await ensureProviderReady(provider);
+      const approach = await chooseActionApproach(baseGame, playerAction, provider);
+      const check = createActionCheck(baseGame, approach);
+      const actionPacket = buildActionPacket(playerAction, check, baseGame);
+      const withPlayerBeat: GameState = maintainGameContext({
+        ...baseGame,
+        story: [...baseGame.story, createStoryBeat("player", playerAction, { check })],
+      });
+
+      setGame(withPlayerBeat);
+      setBusyLabel("The dungeon master is resolving the simulation...");
       const result = await runDungeonMasterTurn(withPlayerBeat, actionPacket, provider);
       const nextGame: GameState = maintainGameContext({
         ...result.nextState,
@@ -927,7 +879,60 @@ function App() {
       }
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "The turn failed.");
-      setGame(game);
+      setGame(baseGame);
+    } finally {
+      setBusyLabel("");
+    }
+  }
+
+  async function resolveDirectorCommand(rawCommand: string) {
+    if (!game || !rawCommand.trim()) {
+      return;
+    }
+
+    const command = normalizeDirectorCommand(rawCommand) || rawCommand.trim();
+    if (!command) {
+      return;
+    }
+
+    const baseGame = game;
+    const commandPacket = buildDirectorPacket(command, baseGame);
+    const stagedGame: GameState = maintainGameContext({
+      ...baseGame,
+      story: [
+        ...baseGame.story,
+        createStoryBeat("system", `Director command: ${command}`),
+      ],
+    });
+
+    setGame(stagedGame);
+    setActionInput("");
+    setDirectorInput("");
+    setBusyLabel("The director is retrieving context and calling tools...");
+    setErrorMessage("");
+
+    try {
+      const provider = await buildProviderConfig(stagedGame.selectedProvider);
+      await ensureProviderReady(provider);
+      const result = await runDungeonMasterTurn(stagedGame, commandPacket, provider);
+      const nextGame: GameState = maintainGameContext({
+        ...result.nextState,
+        story: [
+          ...result.nextState.story,
+          createStoryBeat("dm", result.reply, {
+            toolEvents: result.toolEvents,
+            imageUrl: result.imageUrl,
+          }),
+        ],
+      });
+      setGame(nextGame);
+      setActiveTab("journal");
+      if (!selectedNpcId && nextGame.npcs[0]) {
+        setSelectedNpcId(nextGame.npcs[0].id);
+      }
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "The director command failed.");
+      setGame(baseGame);
     } finally {
       setBusyLabel("");
     }
@@ -937,11 +942,8 @@ function App() {
     await resolveStoryAction(actionInput);
   }
 
-  async function handleQuickAction(action: string, tab?: GameTab) {
-    if (tab) {
-      setActiveTab(tab);
-    }
-    await resolveStoryAction(action);
+  async function handleDirectorAction() {
+    await resolveDirectorCommand(directorInput);
   }
 
   async function handleNpcSend() {
@@ -1001,6 +1003,7 @@ function App() {
     setShowSettings(false);
     setFocusMode(false);
     setNpcInput("");
+    setDirectorInput("");
     setBusyLabel("");
     setErrorMessage("");
     setEngineStatus({
@@ -1191,6 +1194,8 @@ function App() {
   const latestSceneArt =
     game?.artGallery.slice().reverse().find((art) => art.focus === "scene")?.url ??
     game?.latestArtUrl;
+  const activeQuest = game?.quests.find((quest) => quest.status === "active");
+  const recentCheck = game?.story.slice().reverse().find((beat) => beat.check)?.check;
   const gameTabs: Array<{ id: GameTab; label: string }> = [
     { id: "journal", label: "Journal" },
     { id: "surroundings", label: "Scene" },
@@ -1693,6 +1698,146 @@ function App() {
                 </button>
               </div>
 
+              <div className="panel arena-live-hud">
+                <section className="hud-scene">
+                  <div className={`hud-scene-visual ${game.artSettings.autoGenerate && latestSceneArt ? "" : "hud-scene-empty"}`}>
+                    {game.artSettings.autoGenerate && latestSceneArt ? (
+                      <img src={latestSceneArt} alt={`Generated scene for ${game.environment.location}`} />
+                    ) : (
+                      <span>{game.environment.location}</span>
+                    )}
+                  </div>
+                  <div className="hud-scene-copy">
+                    <div className="mini-card-header">
+                      <strong>{game.environment.location}</strong>
+                      <span className="meta-chip">{game.environment.timeOfDay}</span>
+                    </div>
+                    <p>{game.environment.sceneSummary}</p>
+                    <div className="tag-row compact-tags">
+                      <span className="meta-chip">{game.environment.atmosphere}</span>
+                      <span className="meta-chip">{game.environment.weather}</span>
+                      {game.environment.hazards.slice(0, 2).map((hazard) => (
+                        <span key={hazard} className="meta-chip">
+                          {hazard}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </section>
+
+                <section className="hud-status">
+                  <div className="hud-vitals-grid">
+                    <div className="hud-vital">
+                      <span>HP</span>
+                      <strong>{game.player.resources.health}/{game.player.resources.maxHealth}</strong>
+                      <div className="meter-track">
+                        <span style={{ width: formatResourceMeter(game.player.resources.health, game.player.resources.maxHealth) }} />
+                      </div>
+                    </div>
+                    <div className="hud-vital">
+                      <span>Mana</span>
+                      <strong>{game.player.resources.mana}/{game.player.resources.maxMana}</strong>
+                      <div className="meter-track">
+                        <span style={{ width: formatResourceMeter(game.player.resources.mana, game.player.resources.maxMana) }} />
+                      </div>
+                    </div>
+                    <div className="hud-vital">
+                      <span>Stamina</span>
+                      <strong>{game.player.resources.stamina}/{game.player.resources.maxStamina}</strong>
+                      <div className="meter-track">
+                        <span style={{ width: formatResourceMeter(game.player.resources.stamina, game.player.resources.maxStamina) }} />
+                      </div>
+                    </div>
+                    <div className="hud-vital">
+                      <span>Clock</span>
+                      <strong>{game.sceneControls.clockValue}/{game.sceneControls.clockMax}</strong>
+                      <small>{game.sceneControls.clockName}</small>
+                    </div>
+                    <div className="hud-vital">
+                      <span>Armor</span>
+                      <strong>{game.player.resources.armorClass}</strong>
+                      <small>Lv {game.player.level} {game.player.className}</small>
+                    </div>
+                    <div className="hud-vital">
+                      <span>Last Roll</span>
+                      <strong>{recentCheck ? `${recentCheck.total}` : "--"}</strong>
+                      <small>{recentCheck ? `${recentCheck.approachLabel ?? recentCheck.ability} ${recentCheck.risk}` : "pending"}</small>
+                    </div>
+                  </div>
+                  <div className="hud-stakes">
+                    <strong>{game.sceneControls.stakes}</strong>
+                    <p>{activeQuest ? activeQuest.title : game.environment.pressureClock}</p>
+                  </div>
+                </section>
+
+                <section className="hud-rosters">
+                  <div className="hud-roster-block">
+                    <div className="mini-card-header">
+                      <strong>Party</strong>
+                      <span className="meta-chip">{game.party.length + 1}</span>
+                    </div>
+                    <div className="hud-token-row">
+                      <article className="hud-token hud-token-player">
+                        <span className="hud-token-icon hud-token-initials">
+                          {game.playerName.slice(0, 2).toUpperCase()}
+                        </span>
+                        <div>
+                          <strong>{game.playerName}</strong>
+                          <small>{game.player.className}</small>
+                        </div>
+                      </article>
+                      {game.party.length === 0 ? (
+                        <span className="hud-empty">No allies</span>
+                      ) : (
+                        game.party.slice(0, 5).map((member) => (
+                          <article key={member.id} className="hud-token hud-token-party">
+                            {game.artSettings.autoGenerate ? (
+                              <img src={member.avatarUrl} alt={member.name} className="hud-token-icon" />
+                            ) : (
+                              <span className="hud-token-icon hud-token-initials">
+                                {member.name.slice(0, 2).toUpperCase()}
+                              </span>
+                            )}
+                            <div>
+                              <strong>{member.name}</strong>
+                              <small>HP {member.resources.health}/{member.resources.maxHealth}</small>
+                            </div>
+                          </article>
+                        ))
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="hud-roster-block">
+                    <div className="mini-card-header">
+                      <strong>Enemies</strong>
+                      <span className="meta-chip">{game.enemies.length}</span>
+                    </div>
+                    <div className="hud-token-row">
+                      {game.enemies.length === 0 ? (
+                        <span className="hud-empty">No active enemies</span>
+                      ) : (
+                        game.enemies.slice(0, 5).map((enemy) => (
+                          <article key={enemy.id} className="hud-token hud-token-enemy">
+                            {game.artSettings.autoGenerate ? (
+                              <img src={enemy.artUrl} alt={enemy.name} className="hud-token-icon" />
+                            ) : (
+                              <span className="hud-token-icon hud-token-initials">
+                                {enemy.name.slice(0, 2).toUpperCase()}
+                              </span>
+                            )}
+                            <div>
+                              <strong>{enemy.name}</strong>
+                              <small>HP {enemy.stats.health}/{enemy.stats.maxHealth} THR {enemy.stats.threat}</small>
+                            </div>
+                          </article>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                </section>
+              </div>
+
               <div className="panel arena-tab-bar">
                 {gameTabs.map((tab) => (
                   <button
@@ -1730,7 +1875,10 @@ function App() {
                           {beat.check ? (
                             <div className="tool-event-row">
                               <span className="tool-event-chip">
-                                {beat.check.risk} {beat.check.ability}: {beat.check.total} vs {beat.check.difficulty}
+                                {beat.check.approachLabel ?? beat.check.ability} / {beat.check.risk}: {beat.check.total} vs {beat.check.difficulty}
+                              </span>
+                              <span className="tool-event-chip">
+                                d20 {beat.check.roll} {beat.check.modifier >= 0 ? "+" : ""}{beat.check.modifier}
                               </span>
                               <span className="tool-event-chip">{beat.check.outcomeBand}</span>
                             </div>
@@ -2027,24 +2175,6 @@ function App() {
                             ))
                           )}
                         </div>
-                        <div className="button-row">
-                          <button
-                            type="button"
-                            className="ghost-button"
-                            onClick={() => void handleQuickAction("Look for a trustworthy AI-controlled companion who fits this campaign, then recruit or introduce them if it makes sense.", "party")}
-                            disabled={Boolean(busyLabel)}
-                          >
-                            Find Ally
-                          </button>
-                          <button
-                            type="button"
-                            className="ghost-button"
-                            onClick={() => void handleQuickAction("Ask the current AI party members to take sensible actions based on their tactics and the immediate danger.", "party")}
-                            disabled={Boolean(busyLabel) || game.party.length === 0}
-                          >
-                            Party Acts
-                          </button>
-                        </div>
                       </section>
 
                       <section className="arena-actor-column">
@@ -2257,61 +2387,24 @@ function App() {
                   </div>
                   <div className="tag-row compact-tags">
                     {game.sceneControls.availableMoves.map((move) => (
-                      <button
+                      <span
                         key={move}
-                        type="button"
-                        className="seed-chip"
-                        onClick={() => setActionInput((current) => current ? `${current} ${move.toLowerCase()}` : move)}
+                        className="seed-chip rail-chip"
                       >
                         {move}
-                      </button>
+                      </span>
                     ))}
                   </div>
                 </div>
-                <div className="action-controls">
-                  <label className="field-label" htmlFor="action-risk">
-                    Risk
-                  </label>
-                  <select
-                    id="action-risk"
-                    className="text-input"
-                    value={selectedActionRisk}
-                    onChange={(event) => setSelectedActionRisk(event.target.value as ActionRisk)}
-                  >
-                    {ACTION_RISKS.map((risk) => (
-                      <option key={risk} value={risk}>
-                        {risk}
-                      </option>
-                    ))}
-                  </select>
-                  <label className="field-label" htmlFor="action-ability">
-                    Approach
-                  </label>
-                  <select
-                    id="action-ability"
-                    className="text-input"
-                    value={selectedActionAbility}
-                    onChange={(event) => setSelectedActionAbility(event.target.value as AbilityKey)}
-                  >
-                    {ABILITY_LABELS.map((ability) => (
-                      <option key={ability.id} value={ability.id}>
-                        {ability.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
                 <label className="field-label" htmlFor="story-action">
-                  What do you do?
+                  Command Line
                 </label>
                 <textarea
                   id="story-action"
                   className="text-area"
-                  placeholder="State an intent. The DM resolves it as an attempt."
+                  placeholder="I slip behind the altar and listen for the engine under the floor. /director: run a faction turn."
                   value={actionInput}
-                  onChange={(event) => {
-                    setActionInput(event.target.value);
-                    setSelectedActionAbility(inferActionAbility(event.target.value));
-                  }}
+                  onChange={(event) => setActionInput(event.target.value)}
                   disabled={Boolean(busyLabel)}
                 />
                 <button
@@ -2467,22 +2560,24 @@ function App() {
 
               <div className="panel arena-side-panel">
                 <div className="panel-header">
-                  <p className="eyebrow">Director</p>
-                  <span className="meta-chip">Dense play</span>
+                  <p className="eyebrow">Director Console</p>
+                  <span className="meta-chip">Tool path</span>
                 </div>
-                <div className="director-grid">
-                  {DIRECTOR_ACTIONS.map((action) => (
-                    <button
-                      key={action.label}
-                      type="button"
-                      className="ghost-button"
-                      onClick={() => void handleQuickAction(action.prompt, action.tab)}
-                      disabled={Boolean(busyLabel)}
-                    >
-                      {action.label}
-                    </button>
-                  ))}
-                </div>
+                <textarea
+                  className="text-area compact-area"
+                  placeholder="Run a faction turn, recap the stakes, resolve downtime, surface a fair treasure, or generate the next scene image."
+                  value={directorInput}
+                  onChange={(event) => setDirectorInput(event.target.value)}
+                  disabled={Boolean(busyLabel)}
+                />
+                <button
+                  type="button"
+                  className="primary-button"
+                  onClick={handleDirectorAction}
+                  disabled={Boolean(busyLabel) || !directorInput.trim()}
+                >
+                  Run Director Command
+                </button>
               </div>
 
               <div className="panel arena-side-panel">

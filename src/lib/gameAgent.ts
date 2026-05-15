@@ -24,6 +24,8 @@ import {
   getSpellDefinitionByName,
 } from "../data/dnd";
 import type {
+  ActionApproach,
+  ActionRisk,
   AbilityScores,
   CampaignThemeId,
   CharacterResources,
@@ -418,6 +420,203 @@ function summarizeState(state: GameState) {
       check: beat.check,
     })),
   };
+}
+
+const ABILITY_KEYS: Array<keyof AbilityScores> = [
+  "strength",
+  "dexterity",
+  "constitution",
+  "intelligence",
+  "wisdom",
+  "charisma",
+];
+
+const ACTION_RISK_VALUES: ActionRisk[] = ["controlled", "risky", "desperate"];
+
+const ACTION_APPROACH_TOOL: ChatCompletionTool = {
+  type: "function",
+  function: {
+    name: "choose_action_approach",
+    description:
+      "Choose the governing ability score and risk for a player action before the roll is made.",
+    parameters: {
+      type: "object",
+      properties: {
+        ability: {
+          type: "string",
+          enum: ABILITY_KEYS,
+        },
+        risk: {
+          type: "string",
+          enum: ACTION_RISK_VALUES,
+        },
+        label: {
+          type: "string",
+          description: "A short approach label such as Force, Finesse, Study, Sense, Sway, or Endure.",
+        },
+        rationale: {
+          type: "string",
+          description: "One concise sentence explaining why this stat and risk fit the declared intent.",
+        },
+      },
+      required: ["ability", "risk", "label", "rationale"],
+    },
+  },
+};
+
+function isAbilityKey(value: unknown): value is keyof AbilityScores {
+  return ABILITY_KEYS.includes(value as keyof AbilityScores);
+}
+
+function isActionRisk(value: unknown): value is ActionRisk {
+  return ACTION_RISK_VALUES.includes(value as ActionRisk);
+}
+
+function inferAbilityFromAction(action: string): keyof AbilityScores {
+  const lowered = action.toLowerCase();
+  if (/(force|break|lift|shove|smash|grapple|strike|cleave|hold the line)/.test(lowered)) {
+    return "strength";
+  }
+  if (/(sneak|hide|dodge|aim|shoot|balance|lockpick|slip|pickpocket|climb)/.test(lowered)) {
+    return "dexterity";
+  }
+  if (/(endure|resist|hold|survive|march|poison|pain|exhaust|withstand)/.test(lowered)) {
+    return "constitution";
+  }
+  if (/(study|hack|decode|recall|craft|analyze|ritual|map|calculate|engineer)/.test(lowered)) {
+    return "intelligence";
+  }
+  if (/(sense|track|listen|search|notice|heal|read the room|pray|watch|inspect)/.test(lowered)) {
+    return "wisdom";
+  }
+  if (/(talk|convince|lie|perform|command|bargain|comfort|taunt|threaten|deceive)/.test(lowered)) {
+    return "charisma";
+  }
+  return "wisdom";
+}
+
+function inferRiskFromState(state: GameState, action: string): ActionRisk {
+  const lowered = action.toLowerCase();
+  const healthRatio = state.player.resources.health / Math.max(1, state.player.resources.maxHealth);
+  const clockRatio = state.sceneControls.clockValue / Math.max(1, state.sceneControls.clockMax);
+  const activeDanger = state.enemies.length > 0 || state.combat.active || state.environment.hazards.length > 0;
+  const cautiousAction = /(careful|slow|observe|inspect|ask|prepare|study|listen|hide|wait|plan)/.test(lowered);
+  const boldAction = /(charge|rush|leap|dive|grab|steal|attack|force|smash|taunt|sprint|break)/.test(lowered);
+
+  if ((healthRatio <= 0.35 && activeDanger) || clockRatio >= 0.75 || (activeDanger && boldAction)) {
+    return "desperate";
+  }
+  if (!activeDanger && cautiousAction && clockRatio < 0.5) {
+    return "controlled";
+  }
+  return "risky";
+}
+
+function defaultApproachLabel(ability: keyof AbilityScores): string {
+  switch (ability) {
+    case "strength":
+      return "Force";
+    case "dexterity":
+      return "Finesse";
+    case "constitution":
+      return "Endure";
+    case "intelligence":
+      return "Study";
+    case "wisdom":
+      return "Sense";
+    case "charisma":
+      return "Sway";
+    default:
+      return "Approach";
+  }
+}
+
+function createFallbackApproach(state: GameState, action: string): ActionApproach {
+  const ability = inferAbilityFromAction(action);
+  const risk = inferRiskFromState(state, action);
+  return {
+    ability,
+    risk,
+    label: defaultApproachLabel(ability),
+    rationale: "Fallback adjudication used the action wording and current scene pressure.",
+  };
+}
+
+function sanitizeActionApproach(
+  raw: Record<string, unknown>,
+  fallback: ActionApproach,
+): ActionApproach {
+  const ability = isAbilityKey(raw.ability) ? raw.ability : fallback.ability;
+  const risk = isActionRisk(raw.risk) ? raw.risk : fallback.risk;
+  const label = asString(raw.label, fallback.label).trim().slice(0, 32) || fallback.label;
+  const rationale =
+    asString(raw.rationale, fallback.rationale).trim().slice(0, 180) || fallback.rationale;
+
+  return {
+    ability,
+    risk,
+    label,
+    rationale,
+  };
+}
+
+function parseApproachJson(content: string | null): Record<string, unknown> | undefined {
+  if (!content) {
+    return undefined;
+  }
+  const trimmed = content.trim();
+  const jsonMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/) ?? trimmed.match(/({[\s\S]*})/);
+  const jsonText = jsonMatch?.[1] ?? trimmed;
+  try {
+    return asObject(JSON.parse(jsonText));
+  } catch {
+    return undefined;
+  }
+}
+
+export async function chooseActionApproach(
+  state: GameState,
+  playerAction: string,
+  provider: ProviderConfig,
+): Promise<ActionApproach> {
+  if (provider.kind === "webllm" && !engine) {
+    throw new Error("Engine has not been initialized.");
+  }
+
+  const normalized = normalizeGameState(state);
+  const fallback = createFallbackApproach(normalized, playerAction);
+  const response = await createProviderChatCompletion({
+    provider,
+    messages: [
+      {
+        role: "system",
+        content:
+          "You are the action approach adjudicator for a tactical narrative RPG. The player never chooses the approach. Read the current state, then choose the single ability score and risk that best match the declared intent before any roll is made. Favor the stat that the fictional approach actually tests, account for player resources, enemies, hazards, clocks, leverage, and preparation, and do not narrate the outcome.",
+      },
+      {
+        role: "user",
+        content: `Current state:\n${JSON.stringify(summarizeState(normalized), null, 2)}\n\nPlayer intent:\n${playerAction}\n\nCall choose_action_approach. If tool calls are unavailable, return only compact JSON with ability, risk, label, and rationale.`,
+      },
+    ],
+    tools: [ACTION_APPROACH_TOOL],
+    temperature: 0.2,
+    maxTokens: 220,
+  });
+
+  const toolCall = response.tool_calls?.find(
+    (call) => call.function.name === ACTION_APPROACH_TOOL.function.name,
+  );
+
+  if (toolCall) {
+    try {
+      return sanitizeActionApproach(asObject(JSON.parse(toolCall.function.arguments)), fallback);
+    } catch {
+      return fallback;
+    }
+  }
+
+  const parsed = parseApproachJson(response.content);
+  return parsed ? sanitizeActionApproach(parsed, fallback) : fallback;
 }
 
 const DUNGEON_MASTER_TOOLS: ChatCompletionTool[] = [
