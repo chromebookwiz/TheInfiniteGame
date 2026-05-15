@@ -366,13 +366,15 @@ button {
 
 .in-game-shell .app-frame {
   width: min(1360px, calc(100vw - 24px));
+  height: 100vh;
+  overflow: hidden;
 }
 
 .in-game-shell .hero-panel {
   grid-template-columns: minmax(0, 1fr) minmax(260px, 360px);
   gap: 12px;
-  padding: 14px;
-  margin-bottom: 12px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
 }
 
 .in-game-shell .status-stack {
@@ -929,51 +931,63 @@ button {
 
 .arena-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1.55fr) 360px;
+  grid-template-columns: minmax(0, 1fr) minmax(360px, 420px);
   gap: 12px;
-  align-items: start;
+  align-items: stretch;
+  height: calc(100vh - 148px);
+  min-height: 0;
+  overflow: hidden;
 }
 
-.arena-main-column,
-.arena-side-column {
-  display: flex;
-  flex-direction: column;
+.arena-main-column {
+  display: grid;
+  grid-template-rows: auto auto auto minmax(0, 1fr);
   gap: 12px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.arena-side-column {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto auto;
+  gap: 12px;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .arena-tab-bar {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
-  gap: 8px;
-  padding: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(82px, 1fr));
+  gap: 6px;
+  padding: 8px;
 }
 
 .arena-tab-button {
-  min-height: 48px;
+  min-height: 38px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  font-size: 0.74rem;
+  font-size: 0.7rem;
 }
 
 .arena-live-hud {
   display: grid;
-  grid-template-columns: minmax(280px, 0.95fr) minmax(250px, 0.78fr) minmax(320px, 1.05fr);
-  gap: 12px;
-  padding: 12px;
+  grid-template-columns: minmax(260px, 0.95fr) minmax(240px, 0.78fr) minmax(280px, 1fr);
+  gap: 10px;
+  padding: 10px;
   border-color: var(--terminal-line);
 }
 
 .hud-scene {
   display: grid;
-  grid-template-columns: 150px minmax(0, 1fr);
-  gap: 12px;
+  grid-template-columns: 136px minmax(0, 1fr);
+  gap: 10px;
   min-width: 0;
   align-items: stretch;
 }
 
 .hud-scene-visual {
   position: relative;
-  min-height: 128px;
+  min-height: 112px;
   overflow: hidden;
   border: 1px solid var(--terminal-line);
   background:
@@ -995,7 +1009,7 @@ button {
   display: block;
   width: 100%;
   height: 100%;
-  min-height: 128px;
+  min-height: 112px;
   object-fit: cover;
 }
 
@@ -1028,7 +1042,7 @@ button {
 .hud-vitals-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
+  gap: 6px;
 }
 
 .hud-vital,
@@ -1042,8 +1056,8 @@ button {
 }
 
 .hud-vital {
-  min-height: 76px;
-  padding: 8px;
+  min-height: 64px;
+  padding: 7px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -1091,7 +1105,7 @@ button {
 }
 
 .hud-token {
-  min-width: 150px;
+  min-width: 140px;
   display: grid;
   grid-template-columns: 42px minmax(0, 1fr);
   gap: 8px;
@@ -1142,14 +1156,15 @@ button {
 }
 
 .arena-view-panel {
-  min-height: 560px;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 16px;
+  overflow: hidden;
 }
 
 .arena-scroll-region {
-  max-height: 640px;
+  max-height: 100%;
   overflow: auto;
   padding-right: 4px;
 }
@@ -1158,11 +1173,62 @@ button {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  min-height: 0;
 }
 
 .story-card {
   padding: 18px;
   border-radius: 4px;
+}
+
+.journal-side-panel {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.journal-side-panel .story-feed {
+  flex: 1;
+  overflow: auto;
+}
+
+.journal-feed-compact {
+  gap: 10px;
+}
+
+.journal-feed-compact .story-card {
+  padding: 12px;
+}
+
+.journal-feed-compact .story-card p {
+  margin: 8px 0 0;
+  line-height: 1.45;
+}
+
+.journal-option-grid {
+  display: grid;
+  gap: 7px;
+  margin-top: 10px;
+}
+
+.journal-option-button {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--terminal-line);
+  background:
+    linear-gradient(90deg, rgba(77, 247, 255, 0.11), rgba(255, 79, 216, 0.05)),
+    var(--terminal-panel-soft);
+  color: var(--terminal-text);
+  text-align: left;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.journal-option-button:hover {
+  border-color: var(--neon-cyan);
+  transform: translateY(-1px);
 }
 
 .story-system {
@@ -1405,15 +1471,24 @@ button {
 }
 
 .arena-command-panel {
-  position: sticky;
-  bottom: 12px;
   z-index: 2;
+}
+
+.arena-side-column .arena-command-panel,
+.director-side-panel {
+  align-self: stretch;
+}
+
+.arena-side-column .arena-command-panel .text-area,
+.director-side-panel .text-area {
+  min-height: 76px;
+  max-height: 118px;
 }
 
 .scene-rails {
   display: grid;
-  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
-  gap: 12px;
+  grid-template-columns: 1fr;
+  gap: 8px;
   align-items: start;
   margin-bottom: 8px;
 }
@@ -1539,6 +1614,15 @@ button {
     var(--terminal-panel);
 }
 
+.local-probe-card {
+  margin-top: 12px;
+}
+
+.local-probe-card .seed-chip {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
 .compact-hud {
   padding: 12px;
 }
@@ -1576,44 +1660,25 @@ button {
   margin-bottom: 10px;
 }
 
-.focus-mode .arena-side-column,
-.focus-mode .arena-tab-bar,
 .focus-mode .story-header-panel {
   display: none;
 }
 
 .focus-mode .arena-layout {
-  grid-template-columns: 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(360px, 420px);
+  height: calc(100vh - 110px);
 }
 
 .focus-mode .arena-main-column {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(320px, 390px);
-  grid-template-areas:
-    "hud command"
-    "view command";
-  gap: 10px;
-  align-items: start;
-}
-
-.focus-mode .arena-live-hud {
-  grid-area: hud;
-  grid-template-columns: 1fr;
+  grid-template-rows: auto auto minmax(0, 1fr);
 }
 
 .focus-mode .arena-view-panel {
-  grid-area: view;
   min-height: 0;
 }
 
 .focus-mode .arena-scroll-region {
-  max-height: calc(100vh - 350px);
-}
-
-.focus-mode .arena-command-panel {
-  grid-area: command;
-  position: sticky;
-  top: 8px;
+  max-height: 100%;
 }
 
 .focus-mode .scene-rails {
@@ -1621,7 +1686,7 @@ button {
 }
 
 .focus-mode .hud-scene {
-  grid-template-columns: 120px minmax(0, 1fr);
+  grid-template-columns: 126px minmax(0, 1fr);
 }
 
 .focus-mode .hud-vitals-grid {
@@ -1651,6 +1716,11 @@ button {
 }
 
 @media (max-width: 1180px) {
+  .in-game-shell .app-frame {
+    height: auto;
+    overflow: visible;
+  }
+
   .hero-panel,
   .setup-grid,
   .setup-grid-wide,
@@ -1663,16 +1733,35 @@ button {
     grid-template-columns: 1fr;
   }
 
+  .arena-layout {
+    height: auto;
+    overflow: visible;
+  }
+
+  .arena-main-column,
+  .arena-side-column {
+    overflow: visible;
+  }
+
+  .arena-side-column {
+    grid-template-rows: auto;
+  }
+
   .arena-tab-bar {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .arena-view-panel {
     min-height: unset;
+    overflow: visible;
   }
 
   .arena-scroll-region {
     max-height: unset;
+  }
+
+  .journal-side-panel {
+    max-height: 520px;
   }
 }
 
@@ -1735,10 +1824,6 @@ button {
 
   .focus-mode .arena-main-column {
     grid-template-columns: 1fr;
-    grid-template-areas:
-      "hud"
-      "view"
-      "command";
   }
 
   .focus-mode .arena-command-panel {

@@ -28,7 +28,7 @@ import {
   normalizeGameState,
 } from "./lib/gameState";
 import { getDefaultModelId, getToolCallingModels } from "./lib/models";
-import { OPENROUTER_MODELS } from "./lib/openrouter";
+import { OPENROUTER_MODELS, probeOpenAICompatibleEndpoint } from "./lib/openrouter";
 import { DEFAULT_OPENROUTER_MODEL } from "./lib/providerConfig";
 import {
   clearEncryptedOpenRouterKey,
@@ -193,6 +193,34 @@ function buildDirectorPacket(command: string, game: GameState): string {
   ].join("\n");
 }
 
+function cleanActionOption(option: string): string {
+  return option
+    .replace(/\s+or type your own action\.?$/i, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/[.;]\s*$/, "");
+}
+
+function extractActionOptions(content: string): string[] {
+  const lineOptions = content
+    .split(/\r?\n/)
+    .map((line) => {
+      const match = line.match(/^\s*(?:option\s*)?(?:\d+[).:-]|[-*])\s+(.+)$/i);
+      return match ? cleanActionOption(match[1]) : "";
+    })
+    .filter((option) => option && !/^or type your own action/i.test(option));
+
+  if (lineOptions.length > 0) {
+    return [...new Set(lineOptions)].slice(0, 4);
+  }
+
+  const inlineOptions = [...content.matchAll(/(?:^|\s)(?:\d+[).])\s+(.+?)(?=\s+\d+[).]|\s+Or type your own action\.?|$)/gi)]
+    .map((match) => cleanActionOption(match[1]))
+    .filter((option) => option && !/^or type your own action/i.test(option));
+
+  return [...new Set(inlineOptions)].slice(0, 4);
+}
+
 function buildCampaignTitle(game: GameState): string {
   const trimmedTheme = game.theme.trim();
   const headline = trimmedTheme.length > 52 ? `${trimmedTheme.slice(0, 52)}...` : trimmedTheme;
@@ -241,6 +269,9 @@ function App() {
   const [selectedLocalEndpoint, setSelectedLocalEndpoint] = useState(DEFAULT_LOCAL_ENDPOINT);
   const [selectedLocalModel, setSelectedLocalModel] = useState(DEFAULT_LOCAL_MODEL);
   const [selectedLocalApiKey, setSelectedLocalApiKey] = useState("");
+  const [localModelOptions, setLocalModelOptions] = useState<string[]>([]);
+  const [localProbeStatus, setLocalProbeStatus] = useState<AsyncStatus>("idle");
+  const [localProbeMessage, setLocalProbeMessage] = useState("");
   const [selectedClassId, setSelectedClassId] = useState(DND_CLASSES[0]?.id ?? "fighter");
   const [openRouterKeyInput, setOpenRouterKeyInput] = useState("");
   const [openRouterKeyStored, setOpenRouterKeyStored] = useState(false);
@@ -618,6 +649,41 @@ function App() {
     });
   }
 
+  async function handleProbeLocalEndpoint() {
+    const endpoint = selectedLocalEndpoint.trim() || DEFAULT_LOCAL_ENDPOINT;
+    const requestedModel = selectedLocalModel.trim();
+    setLocalProbeStatus("loading");
+    setLocalProbeMessage("Probing local endpoint...");
+    setErrorMessage("");
+
+    try {
+      const result = await probeOpenAICompatibleEndpoint({
+        endpoint,
+        apiKey: selectedLocalApiKey.trim() || undefined,
+        model: requestedModel || undefined,
+      });
+      setSelectedLocalEndpoint(result.endpoint);
+      setLocalModelOptions(result.models);
+      if (!requestedModel || requestedModel === DEFAULT_LOCAL_MODEL || !result.models.includes(requestedModel)) {
+        setSelectedLocalModel(result.selectedModel);
+      }
+      setLocalProbeStatus("ready");
+      setLocalProbeMessage(`${result.message} Discovery: ${result.discoveryUrl}. Chat: ${result.completionUrl}.`);
+      setEngineStatus({
+        phase: result.toolCallReady ? "ready" : "loading",
+        text: result.toolCallReady
+          ? `${result.selectedModel} is ready with local tool calls.`
+          : `${result.selectedModel} responds locally, but tool calls were not verified.`,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Local endpoint probe failed.";
+      setLocalProbeStatus("error");
+      setLocalProbeMessage(message);
+      setErrorMessage(message);
+      setEngineStatus({ phase: "error", text: "Local endpoint probe failed." });
+    }
+  }
+
   async function handleStoreOpenRouterKey() {
     if (!openRouterKeyInput.trim()) {
       setErrorMessage("Enter an OpenRouter API key first.");
@@ -873,7 +939,7 @@ function App() {
         ],
       });
       setGame(nextGame);
-      setActiveTab("journal");
+      setActiveTab("surroundings");
       if (!selectedNpcId && nextGame.npcs[0]) {
         setSelectedNpcId(nextGame.npcs[0].id);
       }
@@ -926,7 +992,7 @@ function App() {
         ],
       });
       setGame(nextGame);
-      setActiveTab("journal");
+      setActiveTab("surroundings");
       if (!selectedNpcId && nextGame.npcs[0]) {
         setSelectedNpcId(nextGame.npcs[0].id);
       }
@@ -1196,8 +1262,8 @@ function App() {
     game?.latestArtUrl;
   const activeQuest = game?.quests.find((quest) => quest.status === "active");
   const recentCheck = game?.story.slice().reverse().find((beat) => beat.check)?.check;
+  const latestDmBeatId = game?.story.slice().reverse().find((beat) => beat.speaker === "dm")?.id;
   const gameTabs: Array<{ id: GameTab; label: string }> = [
-    { id: "journal", label: "Journal" },
     { id: "surroundings", label: "Scene" },
     { id: "combat", label: "Combat" },
     { id: "party", label: "Party" },
@@ -1205,6 +1271,204 @@ function App() {
     { id: "player", label: "Character" },
     { id: "quests", label: "Quests" },
   ];
+
+  function renderJournalContents(compact = false) {
+    if (!game) {
+      return null;
+    }
+
+    return (
+      <>
+        <div className="panel-header">
+          <p className="eyebrow">Journal Log</p>
+          <span className="meta-chip">{game.story.length} entries</span>
+        </div>
+        <div className={`story-feed arena-scroll-region ${compact ? "journal-feed-compact" : ""}`}>
+          {game.story.map((beat) => {
+            const actionOptions =
+              beat.id === latestDmBeatId && beat.speaker === "dm"
+                ? extractActionOptions(beat.content)
+                : [];
+            return (
+              <article key={beat.id} className={`story-card story-${beat.speaker}`}>
+                <div className="story-meta">
+                  <span>
+                    {beat.speaker === "dm"
+                      ? "Dungeon Master"
+                      : beat.speaker === "player"
+                        ? game.playerName
+                        : "System"}
+                  </span>
+                  <span>{formatStoryTimestamp(beat.createdAt)}</span>
+                </div>
+                <p>{beat.content}</p>
+                {beat.check ? (
+                  <div className="tool-event-row">
+                    <span className="tool-event-chip">
+                      {beat.check.approachLabel ?? beat.check.ability} / {beat.check.risk}: {beat.check.total} vs {beat.check.difficulty}
+                    </span>
+                    <span className="tool-event-chip">
+                      d20 {beat.check.roll} {beat.check.modifier >= 0 ? "+" : ""}{beat.check.modifier}
+                    </span>
+                    <span className="tool-event-chip">{beat.check.outcomeBand}</span>
+                  </div>
+                ) : null}
+                {actionOptions.length > 0 ? (
+                  <div className="journal-option-grid">
+                    {actionOptions.map((option) => (
+                      <button
+                        key={option}
+                        type="button"
+                        className="journal-option-button"
+                        onClick={() => void resolveStoryAction(option)}
+                        disabled={Boolean(busyLabel)}
+                      >
+                        {option}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+                {game.artSettings.autoGenerate && beat.imageUrl ? (
+                  <img className="story-image" src={beat.imageUrl} alt="Generated scene art" />
+                ) : null}
+                {beat.toolEvents.length > 0 ? (
+                  <div className="tool-event-row">
+                    {beat.toolEvents.map((toolEvent) => (
+                      <span key={toolEvent.id} className="tool-event-chip">
+                        {toolEvent.summary}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+              </article>
+            );
+          })}
+        </div>
+      </>
+    );
+  }
+
+  function renderCommandPanel() {
+    if (!game) {
+      return null;
+    }
+
+    return (
+      <div className="panel composer-panel arena-command-panel">
+        <div className="scene-rails">
+          <div>
+            <span className="meta-chip">{game.sceneControls.clockName} {game.sceneControls.clockValue}/{game.sceneControls.clockMax}</span>
+            <p className="subtle-copy">{game.sceneControls.stakes}</p>
+          </div>
+          <div className="tag-row compact-tags">
+            {game.sceneControls.availableMoves.map((move) => (
+              <span
+                key={move}
+                className="seed-chip rail-chip"
+              >
+                {move}
+              </span>
+            ))}
+          </div>
+        </div>
+        <label className="field-label" htmlFor="story-action">
+          Command Line
+        </label>
+        <textarea
+          id="story-action"
+          className="text-area"
+          placeholder="I slip behind the altar and listen for the engine under the floor. /director: run a faction turn."
+          value={actionInput}
+          onChange={(event) => setActionInput(event.target.value)}
+          disabled={Boolean(busyLabel)}
+        />
+        <button
+          type="button"
+          className="primary-button"
+          onClick={handleStoryAction}
+          disabled={Boolean(busyLabel) || !actionInput.trim()}
+        >
+          Send Action
+        </button>
+      </div>
+    );
+  }
+
+  function renderLocalEndpointControls(idPrefix: string) {
+    const modelListId = `${idPrefix}-local-model-list`;
+    return (
+      <>
+        <label className="field-label" htmlFor={`${idPrefix}-local-endpoint`}>
+          Local endpoint
+        </label>
+        <input
+          id={`${idPrefix}-local-endpoint`}
+          className="text-input"
+          value={selectedLocalEndpoint}
+          onChange={(event) => {
+            setSelectedLocalEndpoint(event.target.value);
+            setLocalProbeStatus("idle");
+          }}
+          placeholder="http://127.0.0.1:11434/v1 or http://127.0.0.1:8000/v1"
+        />
+        <label className="field-label" htmlFor={`${idPrefix}-local-model`}>
+          Local model
+        </label>
+        <input
+          id={`${idPrefix}-local-model`}
+          className="text-input"
+          list={modelListId}
+          value={selectedLocalModel}
+          onChange={(event) => setSelectedLocalModel(event.target.value)}
+          placeholder="Probe to discover available models"
+        />
+        <datalist id={modelListId}>
+          {localModelOptions.map((model) => (
+            <option key={model} value={model} />
+          ))}
+        </datalist>
+        <label className="field-label" htmlFor={`${idPrefix}-local-api-key`}>
+          API key
+        </label>
+        <input
+          id={`${idPrefix}-local-api-key`}
+          className="text-input"
+          type="password"
+          value={selectedLocalApiKey}
+          onChange={(event) => setSelectedLocalApiKey(event.target.value)}
+          placeholder="optional for vLLM gateways"
+        />
+        <button
+          type="button"
+          className="ghost-button"
+          onClick={() => void handleProbeLocalEndpoint()}
+          disabled={localProbeStatus === "loading"}
+        >
+          {localProbeStatus === "loading" ? "Probing..." : "Probe Endpoint"}
+        </button>
+        {localProbeMessage ? (
+          <div className={`mini-card status-card local-probe-card status-${localProbeStatus}`}>
+            <strong>{localProbeStatus === "ready" ? "Probe succeeded" : localProbeStatus === "error" ? "Probe failed" : "Probe status"}</strong>
+            <p>{localProbeMessage}</p>
+            {localModelOptions.length > 0 ? (
+              <div className="tag-row compact-tags">
+                {localModelOptions.slice(0, 8).map((model) => (
+                  <button
+                    key={model}
+                    type="button"
+                    className={`seed-chip ${selectedLocalModel === model ? "seed-chip-active" : ""}`}
+                    onClick={() => setSelectedLocalModel(model)}
+                  >
+                    {model}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </>
+    );
+  }
 
   return (
     <div className={`app-shell arena-shell terminal-shell theme-${game ? activeTheme.id : terminalTheme} ${game ? "in-game-shell" : "home-terminal-shell"} ${focusMode ? "focus-mode" : ""}`}>
@@ -1420,39 +1684,7 @@ function App() {
                   </p>
                 </>
               ) : selectedProvider === "local" ? (
-                <>
-                  <label className="field-label" htmlFor="local-endpoint">
-                    Local endpoint
-                  </label>
-                  <input
-                    id="local-endpoint"
-                    className="text-input"
-                    value={selectedLocalEndpoint}
-                    onChange={(event) => setSelectedLocalEndpoint(event.target.value)}
-                    placeholder="http://127.0.0.1:11434/v1"
-                  />
-                  <label className="field-label" htmlFor="local-model">
-                    Local model
-                  </label>
-                  <input
-                    id="local-model"
-                    className="text-input"
-                    value={selectedLocalModel}
-                    onChange={(event) => setSelectedLocalModel(event.target.value)}
-                    placeholder="llama3.1"
-                  />
-                  <label className="field-label" htmlFor="local-api-key">
-                    API key
-                  </label>
-                  <input
-                    id="local-api-key"
-                    className="text-input"
-                    type="password"
-                    value={selectedLocalApiKey}
-                    onChange={(event) => setSelectedLocalApiKey(event.target.value)}
-                    placeholder="optional for vLLM gateways"
-                  />
-                </>
+                renderLocalEndpointControls("setup")
               ) : (
                 <>
                   <label className="field-label" htmlFor="openrouter-model">
@@ -1698,6 +1930,19 @@ function App() {
                 </button>
               </div>
 
+              <div className="panel arena-tab-bar">
+                {gameTabs.map((tab) => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    className={`arena-tab-button ${activeTab === tab.id ? "arena-tab-button-active" : ""}`}
+                    onClick={() => setActiveTab(tab.id)}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
               <div className="panel arena-live-hud">
                 <section className="hud-scene">
                   <div className={`hud-scene-visual ${game.artSettings.autoGenerate && latestSceneArt ? "" : "hud-scene-empty"}`}>
@@ -1838,67 +2083,9 @@ function App() {
                 </section>
               </div>
 
-              <div className="panel arena-tab-bar">
-                {gameTabs.map((tab) => (
-                  <button
-                    key={tab.id}
-                    type="button"
-                    className={`arena-tab-button ${activeTab === tab.id ? "arena-tab-button-active" : ""}`}
-                    onClick={() => setActiveTab(tab.id)}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
-
               <div className="panel arena-view-panel">
                 {activeTab === "journal" ? (
-                  <>
-                    <div className="panel-header">
-                      <p className="eyebrow">Journal Log</p>
-                      <span className="meta-chip">{game.story.length} entries</span>
-                    </div>
-                    <div className="story-feed arena-scroll-region">
-                      {game.story.map((beat) => (
-                        <article key={beat.id} className={`story-card story-${beat.speaker}`}>
-                          <div className="story-meta">
-                            <span>
-                              {beat.speaker === "dm"
-                                ? "Dungeon Master"
-                                : beat.speaker === "player"
-                                  ? game.playerName
-                                  : "System"}
-                            </span>
-                            <span>{formatStoryTimestamp(beat.createdAt)}</span>
-                          </div>
-                          <p>{beat.content}</p>
-                          {beat.check ? (
-                            <div className="tool-event-row">
-                              <span className="tool-event-chip">
-                                {beat.check.approachLabel ?? beat.check.ability} / {beat.check.risk}: {beat.check.total} vs {beat.check.difficulty}
-                              </span>
-                              <span className="tool-event-chip">
-                                d20 {beat.check.roll} {beat.check.modifier >= 0 ? "+" : ""}{beat.check.modifier}
-                              </span>
-                              <span className="tool-event-chip">{beat.check.outcomeBand}</span>
-                            </div>
-                          ) : null}
-                          {game.artSettings.autoGenerate && beat.imageUrl ? (
-                            <img className="story-image" src={beat.imageUrl} alt="Generated scene art" />
-                          ) : null}
-                          {beat.toolEvents.length > 0 ? (
-                            <div className="tool-event-row">
-                              {beat.toolEvents.map((toolEvent) => (
-                                <span key={toolEvent.id} className="tool-event-chip">
-                                  {toolEvent.summary}
-                                </span>
-                              ))}
-                            </div>
-                          ) : null}
-                        </article>
-                      ))}
-                    </div>
-                  </>
+                  renderJournalContents()
                 ) : null}
 
                 {activeTab === "surroundings" ? (
@@ -2379,43 +2566,6 @@ function App() {
                 ) : null}
               </div>
 
-              <div className="panel composer-panel arena-command-panel">
-                <div className="scene-rails">
-                  <div>
-                    <span className="meta-chip">{game.sceneControls.clockName} {game.sceneControls.clockValue}/{game.sceneControls.clockMax}</span>
-                    <p className="subtle-copy">{game.sceneControls.stakes}</p>
-                  </div>
-                  <div className="tag-row compact-tags">
-                    {game.sceneControls.availableMoves.map((move) => (
-                      <span
-                        key={move}
-                        className="seed-chip rail-chip"
-                      >
-                        {move}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-                <label className="field-label" htmlFor="story-action">
-                  Command Line
-                </label>
-                <textarea
-                  id="story-action"
-                  className="text-area"
-                  placeholder="I slip behind the altar and listen for the engine under the floor. /director: run a faction turn."
-                  value={actionInput}
-                  onChange={(event) => setActionInput(event.target.value)}
-                  disabled={Boolean(busyLabel)}
-                />
-                <button
-                  type="button"
-                  className="primary-button"
-                  onClick={handleStoryAction}
-                  disabled={Boolean(busyLabel) || !actionInput.trim()}
-                >
-                  Send Action
-                </button>
-              </div>
             </section>
 
             <aside className="arena-side-column">
@@ -2492,39 +2642,7 @@ function App() {
                     </div>
                   </>
                 ) : selectedProvider === "local" ? (
-                  <>
-                    <label className="field-label" htmlFor="runtime-local-endpoint">
-                      Local endpoint
-                    </label>
-                    <input
-                      id="runtime-local-endpoint"
-                      className="text-input"
-                      value={selectedLocalEndpoint}
-                      onChange={(event) => setSelectedLocalEndpoint(event.target.value)}
-                      placeholder="http://127.0.0.1:11434/v1"
-                    />
-                    <label className="field-label" htmlFor="runtime-local-model">
-                      Local model
-                    </label>
-                    <input
-                      id="runtime-local-model"
-                      className="text-input"
-                      value={selectedLocalModel}
-                      onChange={(event) => setSelectedLocalModel(event.target.value)}
-                      placeholder="llama3.1"
-                    />
-                    <label className="field-label" htmlFor="runtime-local-api-key">
-                      API key
-                    </label>
-                    <input
-                      id="runtime-local-api-key"
-                      className="text-input"
-                      type="password"
-                      value={selectedLocalApiKey}
-                      onChange={(event) => setSelectedLocalApiKey(event.target.value)}
-                      placeholder="optional"
-                    />
-                  </>
+                  renderLocalEndpointControls("runtime")
                 ) : webllmCatalogStatus === "ready" ? (
                   <>
                     <label className="field-label" htmlFor="runtime-webllm-model">
@@ -2790,114 +2908,31 @@ function App() {
                 </>
               ) : (
                 <>
-              <div className="panel arena-side-panel compact-hud">
-                <div className="panel-header">
-                  <p className="eyebrow">Condition</p>
-                  <span className="meta-chip">Turn {game.turnCount}</span>
-                </div>
-                <div className="meter-list">
-                  <div>
-                    <div className="meter-row">
-                      <span>Health</span>
-                      <strong>
-                        {game.player.resources.health}/{game.player.resources.maxHealth}
-                      </strong>
+                  <div className="panel arena-side-panel journal-side-panel">
+                    {renderJournalContents(true)}
+                  </div>
+                  {renderCommandPanel()}
+                  <div className="panel arena-side-panel director-side-panel">
+                    <div className="panel-header">
+                      <p className="eyebrow">Director Console</p>
+                      <span className="meta-chip">Tool path</span>
                     </div>
-                    <div className="meter-track">
-                      <span style={{ width: formatResourceMeter(game.player.resources.health, game.player.resources.maxHealth) }} />
-                    </div>
+                    <textarea
+                      className="text-area compact-area"
+                      placeholder="Run a faction turn, recap the stakes, resolve downtime, surface a fair treasure, or generate the next scene image."
+                      value={directorInput}
+                      onChange={(event) => setDirectorInput(event.target.value)}
+                      disabled={Boolean(busyLabel)}
+                    />
+                    <button
+                      type="button"
+                      className="primary-button"
+                      onClick={handleDirectorAction}
+                      disabled={Boolean(busyLabel) || !directorInput.trim()}
+                    >
+                      Run Director Command
+                    </button>
                   </div>
-                  <div>
-                    <div className="meter-row">
-                      <span>Mana</span>
-                      <strong>
-                        {game.player.resources.mana}/{game.player.resources.maxMana}
-                      </strong>
-                    </div>
-                    <div className="meter-track">
-                      <span style={{ width: formatResourceMeter(game.player.resources.mana, game.player.resources.maxMana) }} />
-                    </div>
-                  </div>
-                  <div>
-                    <div className="meter-row">
-                      <span>Stamina</span>
-                      <strong>
-                        {game.player.resources.stamina}/{game.player.resources.maxStamina}
-                      </strong>
-                    </div>
-                    <div className="meter-track">
-                      <span style={{ width: formatResourceMeter(game.player.resources.stamina, game.player.resources.maxStamina) }} />
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-                  <div className="panel arena-side-panel compact-hud">
-                <div className="panel-header">
-                  <p className="eyebrow">Location</p>
-                  <span className="meta-chip">{game.environment.timeOfDay}</span>
-                </div>
-                <strong>{game.environment.location}</strong>
-                <div className="tag-row compact-tags">
-                  {game.environment.hazards.slice(0, 3).map((hazard) => (
-                    <span key={hazard} className="meta-chip">
-                      {hazard}
-                    </span>
-                  ))}
-                  {game.environment.factions.slice(0, 3).map((faction) => (
-                    <span key={faction} className="meta-chip">
-                      {faction}
-                    </span>
-                  ))}
-                </div>
-              </div>
-
-                  <div className="panel arena-side-panel compact-hud">
-                <div className="panel-header">
-                  <p className="eyebrow">Quick Sheet</p>
-                  <span className="meta-chip">{game.player.className}</span>
-                </div>
-                <div className="stat-grid">
-                  <div>
-                    <span>Luck</span>
-                    <strong>{game.player.resources.luck}</strong>
-                  </div>
-                  <div>
-                    <span>Renown</span>
-                    <strong>{game.player.resources.renown}</strong>
-                  </div>
-                  <div>
-                    <span>Armor</span>
-                    <strong>{game.player.resources.armorClass}</strong>
-                  </div>
-                  <div>
-                    <span>Gold</span>
-                    <strong>{game.player.resources.gold}</strong>
-                  </div>
-                  <div>
-                    <span>Level</span>
-                    <strong>{game.player.level}</strong>
-                  </div>
-                  <div>
-                    <span>XP</span>
-                    <strong>{game.player.xp}</strong>
-                  </div>
-                </div>
-              </div>
-
-                  {game.artSettings.autoGenerate && game.artGallery.length > 0 ? (
-                    <div className="panel arena-side-panel compact-hud">
-                      <div className="panel-header">
-                        <p className="eyebrow">Recent Art</p>
-                        <span className="meta-chip">{game.artGallery.length}</span>
-                      </div>
-                      <div className="art-strip arena-art-strip">
-                        {game.artGallery.slice(0, 6).map((art) => (
-                          <img key={art.id} src={art.url} alt={art.prompt} className="art-thumb" />
-                        ))}
-                      </div>
-                    </div>
-                  ) : null}
                 </>
               )}
             </aside>
